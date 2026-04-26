@@ -49,7 +49,7 @@ export interface Match {
   isTimerRunning?: boolean;
 }
 
-export type GoalType = 'normal' | 'header' | 'penalty' | 'own_goal';
+export type GoalType = 'open_goal' | 'header' | 'penalty' | 'own_goal';
 
 export interface Player {
   id: string;
