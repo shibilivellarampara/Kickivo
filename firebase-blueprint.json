@@ -1,0 +1,98 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "user"] }
+      },
+      "required": ["uid", "email"]
+    },
+    "Tournament": {
+      "title": "Tournament",
+      "description": "Football tournament details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "type": "string", "enum": ["league", "knockout"] },
+        "creatorId": { "type": "string" },
+        "status": { "type": "string", "enum": ["upcoming", "live", "completed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "type", "creatorId", "status"]
+    },
+    "Team": {
+      "title": "Team",
+      "description": "Football team details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "logoURL": { "type": "string" },
+        "captainId": { "type": "string" },
+        "tournamentId": { "type": "string" }
+      },
+      "required": ["id", "name", "tournamentId"]
+    },
+    "Match": {
+      "title": "Match",
+      "description": "Football match event",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tournamentId": { "type": "string" },
+        "teamAId": { "type": "string" },
+        "teamBId": { "type": "string" },
+        "scoreA": { "type": "number" },
+        "scoreB": { "type": "number" },
+        "status": { "type": "string", "enum": ["scheduled", "live", "finished"] },
+        "startTime": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "tournamentId", "teamAId", "teamBId", "scoreA", "scoreB", "status"]
+    },
+    "MatchEvent": {
+      "title": "MatchEvent",
+      "description": "Individual event in a match (goal, card)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "matchId": { "type": "string" },
+        "type": { "type": "string", "enum": ["goal", "yellow_card", "red_card"] },
+        "playerId": { "type": "string" },
+        "teamId": { "type": "string" },
+        "minute": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "matchId", "type", "playerId", "minute"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "Profiles of all users"
+    },
+    "tournaments/{tournamentId}": {
+      "schema": "Tournament",
+      "description": "List of tournaments"
+    },
+    "tournaments/{tournamentId}/teams/{teamId}": {
+      "schema": "Team",
+      "description": "Teams participating in a tournament"
+    },
+    "tournaments/{tournamentId}/matches/{matchId}": {
+      "schema": "Match",
+      "description": "Matches within a tournament"
+    },
+    "tournaments/{tournamentId}/matches/{matchId}/events/{eventId}": {
+      "schema": "MatchEvent",
+      "description": "Events occurring during a match"
+    }
+  }
+}

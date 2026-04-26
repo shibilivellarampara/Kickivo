@@ -1,0 +1,86 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // User Rules
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.uid == userId &&
+               data.email is string &&
+               data.displayName is string &&
+               data.keys().hasAll(['uid', 'email', 'displayName']) &&
+               data.keys().size() <= 6;
+      }
+
+      allow get: if isSignedIn();
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming()) && 
+                    incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'role']);
+    }
+
+    // Tournament Rules
+    match /tournaments/{tournamentId} {
+      function isValidTournament(data) {
+        return isValidId(tournamentId) &&
+               data.name is string && data.name.size() <= 100 &&
+               data.type in ['league', 'knockout'] &&
+               data.status in ['upcoming', 'live', 'completed'] &&
+               data.creatorId == request.auth.uid;
+      }
+
+      allow read: if true;
+      allow create: if isSignedIn() && isValidTournament(incoming());
+      allow update: if isSignedIn() && existing().creatorId == request.auth.uid && isValidTournament(incoming());
+      allow delete: if isSignedIn() && existing().creatorId == request.auth.uid;
+    }
+
+    // Team Rules
+    match /tournaments/{tournamentId}/teams/{teamId} {
+      allow read: if true;
+      allow create, update: if isSignedIn() && 
+                             get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.creatorId == request.auth.uid;
+      allow delete: if isSignedIn() && 
+                       get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.creatorId == request.auth.uid;
+    }
+
+    // Match Rules
+    match /tournaments/{tournamentId}/matches/{matchId} {
+      allow read: if true;
+      allow create, update: if isSignedIn() && 
+                             get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.creatorId == request.auth.uid;
+    }
+
+    // Event Rules
+    match /tournaments/{tournamentId}/matches/{matchId}/events/{eventId} {
+      allow read: if true;
+      allow create: if isSignedIn() && 
+                      get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.creatorId == request.auth.uid;
+    }
+  }
+}
