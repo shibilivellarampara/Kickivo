@@ -47,9 +47,8 @@ service cloud.firestore {
     // Tournament Rules
     match /tournaments/{tournamentId} {
       function isValidTournament(data) {
-        return isValidId(tournamentId) &&
-               data.name is string && data.name.size() <= 100 &&
-               data.type in ['league', 'knockout'] &&
+        return data.name is string && data.name.size() <= 100 &&
+               data.type in ['league', 'knockout', 'league_playoff'] &&
                data.status in ['upcoming', 'live', 'completed'] &&
                data.creatorId == request.auth.uid;
       }
@@ -57,7 +56,10 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isSignedIn() && isValidTournament(incoming());
       allow update: if isSignedIn() && existing().creatorId == request.auth.uid && isValidTournament(incoming());
-      allow delete: if isSignedIn() && existing().creatorId == request.auth.uid;
+      allow delete: if isSignedIn() && (
+        !('creatorId' in existing()) || 
+        existing().creatorId == request.auth.uid
+      );
     }
 
     // Team Rules
@@ -67,13 +69,23 @@ service cloud.firestore {
                              get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.creatorId == request.auth.uid;
       allow delete: if isSignedIn() && 
                        get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.creatorId == request.auth.uid;
+
+      match /players/{playerId} {
+        allow read: if true;
+        allow create, update: if isSignedIn() && 
+                               get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.creatorId == request.auth.uid;
+        allow delete: if isSignedIn() && 
+                         get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.creatorId == request.auth.uid;
+      }
     }
 
     // Match Rules
     match /tournaments/{tournamentId}/matches/{matchId} {
       allow read: if true;
-      allow create, update: if isSignedIn() && 
-                             get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.creatorId == request.auth.uid;
+      allow create: if isSignedIn() && 
+                      get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.creatorId == request.auth.uid;
+      allow update: if isSignedIn() && 
+                      get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.creatorId == request.auth.uid;
     }
 
     // Event Rules
@@ -81,6 +93,30 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isSignedIn() && 
                       get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.creatorId == request.auth.uid;
+    }
+
+    // Support collectionGroup queries for teams
+    match /{path=**}/teams/{teamId} {
+      allow read, list: if true;
+    }
+
+    // Support collectionGroup queries for events
+    match /{path=**}/events/{eventId} {
+      allow read, list: if true;
+      allow delete: if isSignedIn() && 
+                      get(/databases/$(database)/documents/tournaments/$(resource.data.tournamentId)).data.creatorId == request.auth.uid;
+    }
+
+    // Support collectionGroup queries for players
+    match /{path=**}/players/{playerId} {
+      allow read, list: if true;
+    }
+
+    // Recruitment Rules
+    match /recruitment/{postId} {
+      allow read, list: if true;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
   }
 }

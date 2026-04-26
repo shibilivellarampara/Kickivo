@@ -1,6 +1,6 @@
 {
-  "name": "FootyHeroes",
-  "description": "A comprehensive application for local football tournaments, featuring live scoring, tournament management, team creation, and player profiles.",
+  "name": "Kickivo",
+  "description": "The ultimate football tournament platform featuring live scoring, player career cards, and community recruitment.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }

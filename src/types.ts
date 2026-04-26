@@ -1,7 +1,7 @@
-export type TournamentType = 'league' | 'knockout';
+export type TournamentType = 'league' | 'knockout' | 'league_playoff';
 export type TournamentStatus = 'upcoming' | 'live' | 'completed';
 export type MatchStatus = 'scheduled' | 'live' | 'finished';
-export type MatchEventType = 'goal' | 'yellow_card' | 'red_card';
+export type MatchEventType = 'goal' | 'yellow_card' | 'red_card' | 'substitution';
 
 export interface User {
   uid: string;
@@ -19,6 +19,9 @@ export interface Tournament {
   creatorId: string;
   status: TournamentStatus;
   createdAt: string;
+  numberOfGroups?: number;
+  advancingPerGroup?: number;
+  maxTeams?: number;
 }
 
 export interface Team {
@@ -26,7 +29,9 @@ export interface Team {
   name: string;
   logoURL?: string;
   captainId?: string;
+  creatorId?: string;
   tournamentId: string;
+  group?: string; // e.g. "Group A", "Group B" etc.
 }
 
 export interface Match {
@@ -38,13 +43,39 @@ export interface Match {
   scoreB: number;
   status: MatchStatus;
   startTime?: string;
+  group?: string; // Optional group name for matches
+  timerStartTime?: any; // Timestamp
+  elapsedTimeOnPause?: number; // in seconds
+  isTimerRunning?: boolean;
+}
+
+export type GoalType = 'normal' | 'header' | 'penalty' | 'own_goal';
+
+export interface Player {
+  id: string;
+  name: string;
+  number?: number;
+  position?: string;
+  teamId: string;
+  tournamentId?: string;
+  userId?: string; // Links to a registered user
+  goals?: number;
+  assists?: number;
+  matchesPlayed?: number;
+  yellowCards?: number;
+  redCards?: number;
 }
 
 export interface MatchEvent {
   id: string;
   matchId: string;
+  tournamentId?: string;
   type: MatchEventType;
   playerId: string;
+  userId?: string; // Optional: denormalized for easier career stats query
+  assistantId?: string;
+  assistantUserId?: string; // Links to assistant registered user
+  goalType?: GoalType;
   teamId: string;
   minute: number;
   timestamp: string;

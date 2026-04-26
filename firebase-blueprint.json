@@ -53,7 +53,10 @@
         "scoreA": { "type": "number" },
         "scoreB": { "type": "number" },
         "status": { "type": "string", "enum": ["scheduled", "live", "finished"] },
-        "startTime": { "type": "string", "format": "date-time" }
+        "startTime": { "type": "string", "format": "date-time" },
+        "timerStartTime": { "type": "object", "description": "Firestore Timestamp" },
+        "elapsedTimeOnPause": { "type": "number" },
+        "isTimerRunning": { "type": "boolean" }
       },
       "required": ["id", "tournamentId", "teamAId", "teamBId", "scoreA", "scoreB", "status"]
     },
@@ -71,6 +74,33 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "matchId", "type", "playerId", "minute"]
+    },
+    "Player": {
+      "title": "Player",
+      "description": "Player in a team",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "number": { "type": "number" },
+        "position": { "type": "string" },
+        "teamId": { "type": "string" }
+      },
+      "required": ["id", "name", "teamId"]
+    },
+    "RecruitmentPost": {
+      "title": "RecruitmentPost",
+      "description": "Post for team or player recruitment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "content": { "type": "string" },
+        "type": { "type": "string", "enum": ["looking_for_team", "looking_for_player", "friendly_match"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "content", "type", "createdAt"]
     }
   },
   "firestore": {
@@ -86,6 +116,10 @@
       "schema": "Team",
       "description": "Teams participating in a tournament"
     },
+    "tournaments/{tournamentId}/teams/{teamId}/players/{playerId}": {
+      "schema": "Player",
+      "description": "Players in a team"
+    },
     "tournaments/{tournamentId}/matches/{matchId}": {
       "schema": "Match",
       "description": "Matches within a tournament"
@@ -93,6 +127,10 @@
     "tournaments/{tournamentId}/matches/{matchId}/events/{eventId}": {
       "schema": "MatchEvent",
       "description": "Events occurring during a match"
+    },
+    "recruitment/{postId}": {
+      "schema": "RecruitmentPost",
+      "description": "Community recruitment posts"
     }
   }
 }
