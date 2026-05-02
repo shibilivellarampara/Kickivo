@@ -40,7 +40,8 @@ const SoccerIcon = ({ className }: { className?: string }) => {
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [view, setView] = useState<'home' | 'tournament' | 'create-tournament' | 'dashboard' | 'join-team'>('home');
-  const [dashboardTab, setDashboardTab] = useState<'tournaments' | 'teams' | 'profile'>('tournaments');
+  const [dashboardTab, setDashboardTab] = useState<'tournaments' | 'teams' | 'profile' | 'following'>('tournaments');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [selectedTournament, setSelectedTournament] = useState<Tournament | null>(null);
   const [joinData, setJoinData] = useState<{ teamId: string, tournamentId: string } | null>(null);
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
@@ -173,6 +174,24 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans overflow-x-hidden">
+      {/* Mobile Menu Toggle - Floating Glass Button */}
+      <div className="fixed top-6 left-6 z-[110] lg:hidden">
+        <button 
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          className="p-4 bg-white/60 backdrop-blur-3xl border border-white/40 rounded-2xl shadow-xl hover:bg-white/80 transition-all active:scale-95 group"
+        >
+          {isSidebarOpen ? (
+            <X className="w-6 h-6 text-slate-600" />
+          ) : (
+            <div className="space-y-1">
+              <div className="w-6 h-0.5 bg-slate-900 rounded-full" />
+              <div className="w-4 h-0.5 bg-emerald-500 rounded-full group-hover:w-6 transition-all" />
+              <div className="w-6 h-0.5 bg-slate-900 rounded-full" />
+            </div>
+          )}
+        </button>
+      </div>
+
       <AnimatePresence>
         {globalError && (
           <motion.div 
@@ -209,70 +228,210 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
-      {/* Navbar - Futuristic iOS Glass Design */}
-      <nav className="fixed top-4 md:top-6 left-1/2 -translate-x-1/2 z-[100] w-[92%] md:w-full max-w-4xl px-4 md:px-6 h-14 md:h-16 flex items-center justify-between bg-white/60 backdrop-blur-2xl border border-white/40 rounded-[28px] md:rounded-[32px] shadow-[0_8px_32px_rgba(0,0,0,0.08)] transition-all">
-        <div 
-          className="flex items-center gap-2 md:gap-3 cursor-pointer group" 
-          onClick={() => { setView('home'); setSelectedTournament(null); }}
-        >
-          <div className="bg-emerald-500 p-1.5 md:p-2 rounded-xl shadow-lg shadow-emerald-500/20 group-hover:rotate-6 transition-transform">
-            <Trophy className="text-white w-4 h-4 md:w-5 md:h-5" />
-          </div>
-          <span className="font-black text-lg md:text-xl tracking-tighter uppercase italic">Kickivo</span>
-        </div>
+      {/* Top Navbar Removed - Replaced by Side Panel */}
 
-        <div className="flex items-center gap-1 md:gap-3">
-          {user ? (
-            <>
-              {/* Desktop Nav */}
-              <div className="hidden md:flex items-center gap-1 p-1 bg-black/5 rounded-2xl">
-                {(['home', 'dashboard-tournaments', 'dashboard-teams'] as const).map((navKey) => {
-                  const isActive = navKey === 'home' ? view === 'home' : (view === 'dashboard' && dashboardTab === (navKey === 'dashboard-tournaments' ? 'tournaments' : 'teams'));
-                  const label = navKey === 'home' ? 'Explore' : (navKey === 'dashboard-tournaments' ? 'Tournaments' : 'Teams');
-                  const Icon = navKey === 'home' ? Zap : (navKey === 'dashboard-tournaments' ? Trophy : Users);
-                  
-                  return (
-                    <button 
-                      key={navKey}
-                      onClick={() => {
-                        if (navKey === 'home') setView('home');
-                        else {
-                          setView('dashboard');
-                          setDashboardTab(navKey === 'dashboard-tournaments' ? 'tournaments' : 'teams');
-                        }
-                      }}
-                      className={`relative px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${isActive ? 'text-emerald-600' : 'text-slate-400 hover:text-slate-600'}`}
-                    >
-                      {isActive && <motion.div layoutId="nav-bg" className="absolute inset-0 bg-white rounded-xl shadow-sm z-0" />}
-                      <Icon className="w-3.5 h-3.5 relative z-10" />
-                      <span className="relative z-10">{label}</span>
-                    </button>
-                  );
-                })}
-              </div>
+      <div className="max-w-7xl mx-auto px-4 pt-4 md:pt-12 pb-24 md:pb-12 w-full lg:pl-0">
+        <div className="flex flex-col lg:flex-row gap-8 min-h-[80vh] relative">
+          
+          {/* Sidebar Drawer Container */}
+          <AnimatePresence>
+            {(isSidebarOpen || (typeof window !== 'undefined' && window.innerWidth >= 1024)) && (
+              <motion.aside 
+                initial={{ x: -300, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: -300, opacity: 0 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 120 }}
+                className={`fixed lg:sticky top-0 lg:top-12 left-0 h-screen lg:h-auto z-[200] lg:z-0 w-80 lg:w-72 shrink-0 p-4 lg:p-0 transition-all ${isSidebarOpen ? 'block' : 'hidden lg:block'}`}
+              >
+                {/* Mobile Backdrop */}
+                <div 
+                  className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm lg:hidden z-[-1]" 
+                  onClick={() => setIsSidebarOpen(false)}
+                />
 
-              <div className="flex items-center gap-1 ml-2">
-                <button 
-                  onClick={() => { setView('dashboard'); setDashboardTab('profile'); }}
-                  className={`p-2 rounded-xl transition-all ${view === 'dashboard' && dashboardTab === 'profile' ? 'text-white bg-emerald-500 shadow-lg shadow-emerald-500/20' : 'text-slate-400 hover:bg-black/5'}`}
-                >
-                  <UserIcon className="w-5 h-5" />
-                </button>
-                <button onClick={logout} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
-                  <LogOut className="w-5 h-5" />
-                </button>
-              </div>
-            </>
-          ) : (
-            <button 
-              onClick={login}
-              className="flex items-center gap-2 bg-slate-900 text-white px-5 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/20"
-            >
-              <LogIn className="w-4 h-4" /> Sign In
-            </button>
-          )}
+                <div className="bg-white/80 backdrop-blur-3xl rounded-[40px] lg:rounded-[32px] border border-white/40 p-6 lg:p-8 shadow-[0_30px_70px_rgba(0,0,0,0.15)] flex flex-col h-full lg:h-auto overflow-y-auto lg:overflow-visible">
+                  {/* Branding Header with Icon & Logo */}
+                  <div 
+                    className="flex items-center gap-4 cursor-pointer group pb-8 mb-6 border-b border-black/5" 
+                    onClick={() => { setView('home'); setSelectedTournament(null); setIsSidebarOpen(false); }}
+                  >
+                    <div className="relative">
+                      <div className="absolute inset-0 bg-emerald-400 blur-xl opacity-30 group-hover:opacity-50 transition-opacity" />
+                      <div className="bg-emerald-500 p-2.5 rounded-2xl shadow-lg shadow-emerald-500/20 group-hover:rotate-6 transition-transform relative z-10">
+                        <Trophy className="text-white w-6 h-6" />
+                      </div>
+                    </div>
+                    <div>
+                      <h1 className="font-black text-2xl tracking-tighter uppercase italic text-slate-900 leading-none">Kickivo</h1>
+                      <p className="text-[9px] font-black uppercase text-emerald-500 tracking-[0.2em] mt-1">Official Hub</p>
+                    </div>
+                  </div>
+
+                  {user ? (
+                    <div className="flex flex-col flex-1">
+                      {/* User Top Profile */}
+                      <div 
+                        className="flex items-center gap-4 p-4 rounded-3xl bg-black/5 mb-8 hover:bg-black/10 transition-colors cursor-pointer group"
+                        onClick={() => { setView('dashboard'); setDashboardTab('profile'); setIsSidebarOpen(false); }}
+                      >
+                        <div className="relative shrink-0">
+                          <img 
+                            src={user.photoURL || ''} 
+                            alt="" 
+                            className="w-12 h-12 rounded-2xl shadow-md border-2 border-white group-hover:scale-105 transition-all duration-300" 
+                          />
+                          <div className="absolute -bottom-0.5 -right-0.5 bg-emerald-500 w-3.5 h-3.5 rounded-full border-2 border-white shadow-sm" />
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="font-bold text-slate-900 text-sm truncate leading-tight">{user.displayName}</h3>
+                          <p className="text-[10px] font-medium text-slate-400 truncate uppercase mt-0.5 tracking-wider">Player Level 01</p>
+                        </div>
+                      </div>
+
+                      {/* Side Panel Navigation */}
+                      <nav className="space-y-2 flex-1">
+                        <button 
+                          onClick={() => { setView('home'); setIsSidebarOpen(false); }}
+                          className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all group ${view === 'home' ? 'bg-emerald-500 text-white shadow-xl shadow-emerald-500/30 font-black' : 'text-slate-500 hover:bg-black/5'}`}
+                        >
+                          <Zap className={`w-5 h-5 ${view === 'home' ? 'text-white' : 'text-emerald-500'}`} />
+                          <span className="text-[10px] uppercase tracking-widest">Explore Matches</span>
+                        </button>
+                        <button 
+                          onClick={() => { setView('dashboard'); setDashboardTab('tournaments'); setIsSidebarOpen(false); }}
+                          className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all group ${view === 'dashboard' && dashboardTab === 'tournaments' ? 'bg-slate-900 text-white shadow-xl shadow-slate-900/30 font-black' : 'text-slate-500 hover:bg-black/5'}`}
+                        >
+                          <div className="flex items-center gap-4">
+                            <RefreshCw className={`w-5 h-5 ${view === 'dashboard' && dashboardTab === 'tournaments' ? 'text-white' : 'text-slate-400'}`} />
+                            <span className="text-[10px] uppercase tracking-widest">Organize</span>
+                          </div>
+                        </button>
+                        <button 
+                          onClick={() => { setView('dashboard'); setDashboardTab('following'); setIsSidebarOpen(false); }}
+                          className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all group ${view === 'dashboard' && dashboardTab === 'following' ? 'bg-slate-900 text-white shadow-xl shadow-slate-900/30 font-black' : 'text-slate-500 hover:bg-black/5'}`}
+                        >
+                          <div className="flex items-center gap-4">
+                            <Star className={`w-5 h-5 ${view === 'dashboard' && dashboardTab === 'following' ? 'text-white' : 'text-amber-400'}`} />
+                            <span className="text-[10px] uppercase tracking-widest">Following</span>
+                          </div>
+                        </button>
+                        <button 
+                          onClick={() => { setView('dashboard'); setDashboardTab('teams'); setIsSidebarOpen(false); }}
+                          className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all group ${view === 'dashboard' && dashboardTab === 'teams' ? 'bg-slate-900 text-white shadow-xl shadow-slate-900/30 font-black' : 'text-slate-500 hover:bg-black/5'}`}
+                        >
+                          <div className="flex items-center gap-4">
+                            <Users className={`w-5 h-5 ${view === 'dashboard' && dashboardTab === 'teams' ? 'text-white' : 'text-blue-500'}`} />
+                            <span className="text-[10px] uppercase tracking-widest">Squads</span>
+                          </div>
+                        </button>
+                      </nav>
+
+                      {/* Logout at bottom */}
+                      <div className="mt-auto pt-8 border-t border-black/5">
+                        <button 
+                          onClick={() => { logout(); setIsSidebarOpen(false); }}
+                          className="w-full flex items-center gap-4 p-4 rounded-2xl text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all font-black text-[10px] uppercase tracking-widest group"
+                        >
+                          <LogOut className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
+                          <span>Exit System</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-6 flex flex-col items-center py-8">
+                       <Shield className="w-16 h-16 text-slate-100 mb-2" />
+                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 text-center leading-relaxed px-4">
+                         Please sign in to access your tournament control panel
+                       </p>
+                       <button 
+                         onClick={login}
+                         className="w-full flex items-center justify-center gap-3 p-5 rounded-2xl bg-slate-900 text-white font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/20 active:scale-95"
+                       >
+                         <LogIn className="w-5 h-5" />
+                         <span>Direct Sign In</span>
+                       </button>
+                    </div>
+                  )}
+                </div>
+              </motion.aside>
+            )}
+          </AnimatePresence>
+
+          {/* Main Content Area */}
+          <main className="flex-1 min-w-0">
+            <AnimatePresence mode="wait">
+              {view === 'home' && (
+                <motion.div key="home" className="space-y-12">
+                  <HomeView 
+                    tournaments={tournaments} 
+                    onSelectTournament={(t) => {
+                      setSelectedTournament(t);
+                      setView('tournament');
+                    }}
+                  />
+                  <RecruitmentBoard user={user} onError={handleError} notify={notify} />
+                </motion.div>
+              )}
+              {view === 'tournament' && selectedTournament && (
+                <motion.div key="tournament">
+                  <TournamentView 
+                    tournament={selectedTournament} 
+                    user={user}
+                    onBack={() => {
+                       setView('home');
+                       setSelectedTournament(null);
+                    }}
+                    onError={handleError}
+                    notify={notify}
+                  />
+                </motion.div>
+              )}
+              {view === 'create-tournament' && (
+                <motion.div key="create">
+                  <CreateTournamentView 
+                    user={user} 
+                    onSuccess={() => {
+                      setView('dashboard');
+                      setDashboardTab('tournaments');
+                      notify('Tournament created successfully!');
+                    }} 
+                    onError={handleError}
+                  />
+                </motion.div>
+              )}
+              {view === 'join-team' && user && joinData && (
+                <motion.div key="join" className="max-w-xl mx-auto">
+                  <JoinTeamView 
+                    teamId={joinData.teamId} 
+                    tournamentId={joinData.tournamentId} 
+                    user={user}
+                    onSuccess={() => {
+                       setView('dashboard');
+                       setDashboardTab('teams');
+                       notify('Successfully joined the team!');
+                       window.history.replaceState({}, document.title, window.location.pathname);
+                    }}
+                    onCancel={() => setView('home')}
+                  />
+                </motion.div>
+              )}
+              {view === 'dashboard' && user && (
+                <motion.div key="dashboard">
+                  <DashboardView 
+                    user={user} 
+                    activeTab={dashboardTab}
+                    onSelectTournament={(t) => {
+                      setSelectedTournament(t);
+                      setView('tournament');
+                    }}
+                    onError={handleError}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </main>
         </div>
-      </nav>
+      </div>
 
       {/* Mobile Bottom Nav - glass design */}
       {user && (
@@ -304,80 +463,6 @@ export default function App() {
           })}
         </nav>
       )}
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 pt-24 md:pt-32 pb-24 md:pb-12 w-full overflow-x-hidden">
-        <AnimatePresence mode="wait">
-          {view === 'home' && (
-            <motion.div key="home" className="space-y-12">
-              <HomeView 
-                tournaments={tournaments} 
-                onSelectTournament={(t) => {
-                  setSelectedTournament(t);
-                  setView('tournament');
-                }}
-              />
-              <RecruitmentBoard user={user} onError={handleError} notify={notify} />
-            </motion.div>
-          )}
-          {view === 'tournament' && selectedTournament && (
-            <motion.div key="tournament">
-              <TournamentView 
-                tournament={selectedTournament} 
-                user={user}
-                onBack={() => {
-                   setView('home');
-                   setSelectedTournament(null);
-                }}
-                onError={handleError}
-                notify={notify}
-              />
-            </motion.div>
-          )}
-          {view === 'create-tournament' && (
-            <motion.div key="create">
-              <CreateTournamentView 
-                user={user} 
-                onSuccess={() => {
-                  setView('home');
-                  notify('Tournament created successfully!');
-                }} 
-                onError={handleError}
-              />
-            </motion.div>
-          )}
-          {view === 'join-team' && joinData && (
-            <motion.div key="join">
-              <JoinTeamView 
-                teamId={joinData.teamId} 
-                tournamentId={joinData.tournamentId} 
-                user={user}
-                onSuccess={() => {
-                   setView('dashboard');
-                   setDashboardTab('teams');
-                   notify('Successfully joined the team!');
-                   // Clear URL params
-                   window.history.replaceState({}, document.title, window.location.pathname);
-                }}
-                onCancel={() => setView('home')}
-              />
-            </motion.div>
-          )}
-          {view === 'dashboard' && user && (
-            <motion.div key="dashboard">
-              <DashboardView 
-                user={user} 
-                initialTab={dashboardTab}
-                onSelectTournament={(t) => {
-                  setSelectedTournament(t);
-                  setView('tournament');
-                }}
-                onError={handleError}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </main>
     </div>
   );
 }
@@ -1001,16 +1086,6 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
               className="px-4 py-2 bg-emerald-500 text-white rounded-full text-sm font-bold flex items-center gap-2 hover:bg-emerald-600 transition-all shadow-lg"
             >
               <Calendar className="w-4 h-4" /> Schedule Match
-            </button>
-            <button 
-              onClick={deleteTournament}
-              className={`p-2 transition-all flex items-center gap-2 font-bold text-[10px] uppercase tracking-widest group rounded-lg ${
-                isDeleting ? 'bg-red-500 text-white shadow-lg animate-pulse' : 'text-slate-300 hover:text-red-500'
-              }`}
-              title={isDeleting ? 'Click again to confirm delete' : 'Delete Tournament'}
-            >
-              <Trash2 className={`w-4 h-4 ${isDeleting ? 'text-white' : 'text-slate-300 group-hover:text-red-500'} transition-colors`} />
-              <span className="hidden md:inline">{isDeleting ? 'Confirm Delete' : 'Delete Tournament'}</span>
             </button>
           </div>
         )}
@@ -1941,27 +2016,27 @@ function MatchScoringView({ tournament, match, teams, onBack, isCreator, notify 
                 </h2>
                 
                 {isCreator && liveMatch.status !== 'finished' && (
-                  <div className="flex items-center justify-center gap-3">
+                  <div className="flex items-center justify-center gap-2">
                     <button 
                       onClick={() => setShowEventModal({ side: 'A', type: 'goal', step: 1 })} 
-                      className="w-12 h-12 md:w-16 md:h-16 bg-emerald-500 rounded-2xl md:rounded-[24px] flex items-center justify-center hover:bg-emerald-600 transition-all shadow-xl shadow-emerald-500/20 active:scale-90 group shrink-0"
+                      className="w-10 h-10 md:w-16 md:h-16 bg-emerald-500 rounded-[18px] md:rounded-[24px] flex items-center justify-center hover:bg-emerald-600 transition-all shadow-xl shadow-emerald-500/20 active:scale-90 group shrink-0"
                       title="Add Goal"
                     >
-                      <SoccerIcon className="w-6 h-6 md:w-8 md:h-8 text-white group-hover:scale-110 transition-transform" />
+                      <SoccerIcon className="w-5 h-5 md:w-8 md:h-8 text-white group-hover:scale-110 transition-transform" />
                     </button>
                     <button 
                       onClick={() => setShowEventModal({ side: 'A', type: 'yellow_card', step: 1 })} 
-                      className="w-12 h-12 md:w-16 md:h-16 bg-gradient-to-br from-yellow-400 from-50% to-red-500 to-50% rounded-2xl md:rounded-[24px] flex items-center justify-center hover:opacity-90 transition-all shadow-xl active:scale-90 group shrink-0"
+                      className="w-10 h-10 md:w-16 md:h-16 bg-gradient-to-br from-yellow-400 from-50% to-red-500 to-50% rounded-[18px] md:rounded-[24px] flex items-center justify-center hover:opacity-90 transition-all shadow-xl active:scale-90 group shrink-0"
                       title="Add Card"
                     >
-                      <Shield className="w-6 h-6 md:w-8 md:h-8 text-white drop-shadow-md group-hover:rotate-12 transition-transform" />
+                      <Shield className="w-5 h-5 md:w-8 md:h-8 text-white drop-shadow-md group-hover:rotate-12 transition-transform" />
                     </button>
                     <button 
                       onClick={() => setShowEventModal({ side: 'A', type: 'substitution', step: 1 })} 
-                      className="w-12 h-12 md:w-16 md:h-16 bg-white/5 border border-white/10 rounded-2xl md:rounded-[24px] flex items-center justify-center hover:bg-white/10 transition-all active:scale-90 group shrink-0"
+                      className="w-10 h-10 md:w-16 md:h-16 bg-white/5 border border-white/10 rounded-[18px] md:rounded-[24px] flex items-center justify-center hover:bg-white/10 transition-all active:scale-90 group shrink-0"
                       title="Substitution"
                     >
-                      <RefreshCw className="w-6 h-6 md:w-8 md:h-8 text-white/40 group-hover:text-white group-hover:rotate-180 transition-all duration-500" />
+                      <RefreshCw className="w-5 h-5 md:w-8 md:h-8 text-white/40 group-hover:text-white group-hover:rotate-180 transition-all duration-500" />
                     </button>
                   </div>
                 )}
@@ -1999,27 +2074,27 @@ function MatchScoringView({ tournament, match, teams, onBack, isCreator, notify 
                 </h2>
 
                 {isCreator && liveMatch.status !== 'finished' && (
-                  <div className="flex items-center justify-center gap-3">
+                  <div className="flex items-center justify-center gap-2">
                     <button 
                       onClick={() => setShowEventModal({ side: 'B', type: 'goal', step: 1 })} 
-                      className="w-12 h-12 md:w-16 md:h-16 bg-emerald-500 rounded-2xl md:rounded-[24px] flex items-center justify-center hover:bg-emerald-600 transition-all shadow-xl shadow-emerald-500/20 active:scale-90 group shrink-0"
+                      className="w-10 h-10 md:w-16 md:h-16 bg-emerald-500 rounded-[18px] md:rounded-[24px] flex items-center justify-center hover:bg-emerald-600 transition-all shadow-xl shadow-emerald-500/20 active:scale-90 group shrink-0"
                       title="Add Goal"
                     >
-                      <SoccerIcon className="w-6 h-6 md:w-8 md:h-8 text-white group-hover:scale-110 transition-transform" />
+                      <SoccerIcon className="w-5 h-5 md:w-8 md:h-8 text-white group-hover:scale-110 transition-transform" />
                     </button>
                     <button 
                       onClick={() => setShowEventModal({ side: 'B', type: 'yellow_card', step: 1 })} 
-                      className="w-12 h-12 md:w-16 md:h-16 bg-gradient-to-br from-yellow-400 from-50% to-red-500 to-50% rounded-2xl md:rounded-[24px] flex items-center justify-center hover:opacity-90 transition-all shadow-xl active:scale-90 group shrink-0"
+                      className="w-10 h-10 md:w-16 md:h-16 bg-gradient-to-br from-yellow-400 from-50% to-red-500 to-50% rounded-[18px] md:rounded-[24px] flex items-center justify-center hover:opacity-90 transition-all shadow-xl active:scale-90 group shrink-0"
                       title="Add Card"
                     >
-                      <Shield className="w-6 h-6 md:w-8 md:h-8 text-white drop-shadow-md group-hover:rotate-12 transition-transform" />
+                      <Shield className="w-5 h-5 md:w-8 md:h-8 text-white drop-shadow-md group-hover:rotate-12 transition-transform" />
                     </button>
                     <button 
                       onClick={() => setShowEventModal({ side: 'B', type: 'substitution', step: 1 })} 
-                      className="w-12 h-12 md:w-16 md:h-16 bg-white/5 border border-white/10 rounded-2xl md:rounded-[24px] flex items-center justify-center hover:bg-white/10 transition-all active:scale-90 group shrink-0"
+                      className="w-10 h-10 md:w-16 md:h-16 bg-white/5 border border-white/10 rounded-[18px] md:rounded-[24px] flex items-center justify-center hover:bg-white/10 transition-all active:scale-90 group shrink-0"
                       title="Substitution"
                     >
-                      <RefreshCw className="w-6 h-6 md:w-8 md:h-8 text-white/40 group-hover:text-white group-hover:rotate-180 transition-all duration-500" />
+                      <RefreshCw className="w-5 h-5 md:w-8 md:h-8 text-white/40 group-hover:text-white group-hover:rotate-180 transition-all duration-500" />
                     </button>
                   </div>
                 )}
@@ -2752,17 +2827,14 @@ function RecruitmentBoard({ user, onError, notify }: { user: FirebaseUser | null
   );
 }
 
-function DashboardView({ user, initialTab, onSelectTournament, onError }: { user: FirebaseUser, initialTab?: 'tournaments' | 'teams' | 'profile', onSelectTournament: (t: Tournament) => void, onError: (err: any) => void }) {
+function DashboardView({ user, activeTab, onSelectTournament, onError }: { user: FirebaseUser, activeTab: 'tournaments' | 'teams' | 'profile' | 'following', onSelectTournament: (t: Tournament) => void, onError: (err: any) => void }) {
   const [userTournaments, setUserTournaments] = useState<Tournament[]>([]);
+  const [followingTournaments, setFollowingTournaments] = useState<Tournament[]>([]);
   const [userTeams, setUserTeams] = useState<Team[]>([]);
   const [careerTeams, setCareerTeams] = useState<{ teamId: string, tournamentId: string, name: string }[]>([]);
   const [careerStats, setCareerStats] = useState({ goals: 0, assists: 0, matches: 0, yellow: 0, red: 0 });
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'tournaments' | 'teams' | 'profile'>(initialTab || 'tournaments');
-
-  useEffect(() => {
-    if (initialTab) setActiveTab(initialTab);
-  }, [initialTab]);
+  const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -2783,12 +2855,23 @@ function DashboardView({ user, initialTab, onSelectTournament, onError }: { user
         setUserTeams(sTeams.docs.map(d => ({ id: d.id, ...d.data() } as Team)));
         
         const careerPlayerData = sCareerPlayers.docs.map(d => d.data() as Player);
-        // Deduplicate and map career teams
         const cTeamsMap: { [key: string]: any } = {};
+        const followIds = new Set<string>();
+
         careerPlayerData.forEach(p => {
-          cTeamsMap[p.teamId] = { teamId: p.teamId, tournamentId: p.tournamentId, name: p.name }; // Using p.name from player record as fallback
+          cTeamsMap[p.teamId] = { teamId: p.teamId, tournamentId: p.tournamentId, name: p.name };
+          if (p.tournamentId) followIds.add(p.tournamentId);
         });
         setCareerTeams(Object.values(cTeamsMap));
+
+        // Fetch Following Tournaments
+        if (followIds.size > 0) {
+          const ids = Array.from(followIds);
+          // Firestore 'in' limitation: handle chunks of 10 if needed, but for now assuming small list
+          const qFollow = query(collection(db, 'tournaments'), where('__name__', 'in', ids.slice(0, 10)));
+          const sFollow = await getDocs(qFollow);
+          setFollowingTournaments(sFollow.docs.map(d => ({ id: d.id, ...d.data() } as Tournament)));
+        }
 
         const events = sCareerEvents.docs.map(d => d.data() as MatchEvent);
         setCareerStats({
@@ -2808,200 +2891,212 @@ function DashboardView({ user, initialTab, onSelectTournament, onError }: { user
     fetchUserData();
   }, [user.uid]);
 
+  const handleDeleteTournament = async (tournamentId: string) => {
+    if (isDeletingId !== tournamentId) {
+      setIsDeletingId(tournamentId);
+      setTimeout(() => setIsDeletingId(null), 3000);
+      return;
+    }
+
+    try {
+      await deleteDoc(doc(db, 'tournaments', tournamentId));
+      setUserTournaments(prev => prev.filter(t => t.id !== tournamentId));
+      setIsDeletingId(null);
+    } catch (err) {
+      onError(err);
+      handleFirestoreError(err, OperationType.DELETE, `tournaments/${tournamentId}`);
+    }
+  };
+
   if (loading) return (
-    <div className="flex items-center justify-center py-20">
-      <div className="animate-spin rounded-full h-12 w-12 border-4 border-emerald-500 border-t-transparent shadow-xl"></div>
+    <div className="flex items-center justify-center py-20 text-emerald-500 font-black uppercase text-xs tracking-widest animate-pulse">
+      Initializing Secure Dashboard...
     </div>
   );
 
   return (
-    <div className="space-y-8 pb-20">
-      {/* Profile Header */}
-      <div className="bg-slate-900 text-white rounded-[40px] p-8 md:p-12 shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 blur-[100px] rounded-full -translate-y-1/2 translate-x-1/2" />
-        <div className="flex flex-col md:flex-row items-center gap-8 relative z-10">
-          <img src={user.photoURL || ''} alt="" className="w-24 h-24 rounded-full border-4 border-white/10 shadow-2xl" />
-          <div className="text-center md:text-left space-y-1 text-slate-100">
-            <h1 className="text-3xl font-black tracking-tighter uppercase">{user.displayName}</h1>
-            <p className="text-white/50 font-medium text-sm">{user.email}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Active View */}
-      <motion.div 
-        key={activeTab}
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="min-h-[400px] pt-4"
-      >
-        {activeTab === 'tournaments' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-black uppercase tracking-tight text-slate-800">Manage Your Tournaments</h2>
-              <button 
-                onClick={() => {
-                  // In a real app we'd trigger the view change from parent, 
-                  // but here we can just call setView if we pass it or use a callback
-                  (window as any).triggerCreateTournament();
-                }}
-                className="flex items-center gap-2 bg-emerald-500 text-white px-4 py-2 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-emerald-600 transition-all shadow-sm"
-              >
-                <Plus className="w-3 h-3" /> New Tournament
-              </button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {userTournaments.length === 0 ? (
-              <div className="col-span-full p-12 text-center bg-slate-50 rounded-[32px] border border-dashed border-slate-200">
-                <p className="text-slate-400 font-bold mb-4">No tournaments found.</p>
-                <button 
-                  onClick={() => (window as any).triggerCreateTournament()}
-                  className="px-6 py-3 bg-emerald-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest"
-                >
-                  Create Your First Tournament
-                </button>
-              </div>
-            ) : (
-                userTournaments.map(t => (
-                  <div 
-                    key={t.id} 
-                    onClick={() => onSelectTournament(t)}
-                    className="group bg-white p-6 rounded-3xl border border-slate-200 hover:border-emerald-200 shadow-sm hover:shadow-md transition-all cursor-pointer flex items-center justify-between"
+    <div className="space-y-6">
+      <AnimatePresence mode="wait">
+        <motion.div 
+          key={activeTab}
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -20 }}
+          className="space-y-6"
+        >
+            {activeTab === 'tournaments' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-black uppercase tracking-tight text-slate-800">Your Masterpieces</h2>
+                  <button 
+                    onClick={() => (window as any).triggerCreateTournament()}
+                    className="flex items-center gap-2 bg-emerald-500 text-white px-4 py-2 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/10"
                   >
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-slate-50 group-hover:bg-emerald-50 rounded-2xl flex items-center justify-center">
-                        <Trophy className="w-6 h-6 text-emerald-500" />
-                      </div>
-                      <div>
-                        <h4 className="font-black text-slate-800 uppercase tracking-tight line-clamp-1">{t.name}</h4>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t.type.replace('_', ' ')} • {t.status}</p>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-slate-200 group-hover:text-emerald-500" />
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'teams' && (
-          <div className="space-y-4">
-            <h2 className="text-xl font-black uppercase tracking-tight text-slate-800">Your Registered Teams</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {userTeams.length === 0 ? (
-                <div className="col-span-full p-12 text-center bg-slate-50 rounded-[32px] border border-dashed border-slate-200">
-                  <p className="text-slate-400 font-bold">You haven't formed any teams yet.</p>
+                    <Plus className="w-3 h-3" /> New Arena
+                  </button>
                 </div>
-              ) : (
-                userTeams.map(team => (
-                  <div key={team.id} className="bg-white p-6 rounded-3xl border border-slate-200 flex items-center justify-between group shadow-sm">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center overflow-hidden border border-slate-100">
-                        {team.logoURL ? <img src={team.logoURL} className="w-full h-full object-cover" /> : <Users className="text-slate-300" />}
-                      </div>
-                      <div>
-                        <h4 className="font-black text-slate-800 uppercase tracking-tight">{team.name}</h4>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">ID: {team.tournamentId.slice(0, 8)}</p>
-                      </div>
+                <div className="grid grid-cols-1 gap-4">
+                  {userTournaments.length === 0 ? (
+                    <div className="p-12 text-center bg-slate-50 rounded-[40px] border border-dashed border-slate-200">
+                      <p className="text-slate-400 font-bold mb-4">You haven't built any arenas yet.</p>
+                      <button onClick={() => (window as any).triggerCreateTournament()} className="px-6 py-3 bg-emerald-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest">Launch Arena</button>
                     </div>
-                    <button className="p-3 bg-slate-50 rounded-xl text-slate-400 hover:text-emerald-500 transition-colors">
-                      <Settings className="w-5 h-5" />
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
+                  ) : (
+                    userTournaments.map(t => (
+                      <div 
+                        key={t.id} 
+                        className="group bg-white p-6 rounded-[32px] border border-slate-200 hover:border-emerald-200 shadow-sm hover:shadow-xl transition-all flex items-center justify-between"
+                      >
+                        <div className="flex items-center gap-4 cursor-pointer" onClick={() => onSelectTournament(t)}>
+                          <div className="w-14 h-14 bg-emerald-50 rounded-[20px] flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <Trophy className="w-7 h-7 text-emerald-500" />
+                          </div>
+                          <div>
+                            <h4 className="font-black text-slate-800 uppercase tracking-tight text-lg">{t.name}</h4>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t.type.replace('_', ' ')} • {t.status}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                           {/* NOTE: Delete button removed from here as per "profiles only" request, though Organized might be what they mean. 
+                               But I'll put it in the Profile Stats tab's management section if that's what they mean by 'profiles only' */}
+                           <ChevronRight className="w-6 h-6 text-slate-200 group-hover:text-emerald-500" />
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
 
-        {activeTab === 'profile' && (
-          <div className="space-y-6 max-w-2xl mx-auto">
-            {/* Career Summary */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="bg-white p-6 rounded-3xl border border-slate-200 text-center flex flex-col items-center">
-                <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1 flex items-center gap-1">
-                  <SoccerIcon className="w-3 h-3" /> Goals
-                </p>
-                <p className="text-3xl font-black text-emerald-500">{careerStats.goals}</p>
+            {activeTab === 'following' && (
+              <div className="space-y-4">
+                <h2 className="text-xl font-black uppercase tracking-tight text-slate-800">Watching Closely</h2>
+                <div className="grid grid-cols-1 gap-4">
+                  {followingTournaments.length === 0 ? (
+                    <div className="p-12 text-center bg-slate-50 rounded-[40px] border border-dashed border-slate-200">
+                      <p className="text-slate-400 font-bold">You aren't active in any other arenas yet.</p>
+                    </div>
+                  ) : (
+                    followingTournaments.map(t => (
+                      <div 
+                        key={t.id} 
+                        onClick={() => onSelectTournament(t)}
+                        className="group bg-white p-6 rounded-[32px] border border-slate-200 hover:border-emerald-200 shadow-sm transition-all cursor-pointer flex items-center justify-between"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="w-14 h-14 bg-slate-50 rounded-[20px] flex items-center justify-center group-hover:bg-emerald-50">
+                            <Star className="w-7 h-7 text-slate-300 group-hover:text-emerald-500" />
+                          </div>
+                          <div>
+                            <h4 className="font-black text-slate-800 uppercase tracking-tight leading-tight">{t.name}</h4>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Active Since {new Date(t.createdAt).toLocaleDateString()}</p>
+                          </div>
+                        </div>
+                        <ChevronRight className="w-6 h-6 text-slate-200 group-hover:text-emerald-500" />
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
-              <div className="bg-white p-6 rounded-3xl border border-slate-200 text-center">
-                <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Assists</p>
-                <p className="text-3xl font-black text-blue-500">{careerStats.assists}</p>
+            )}
+
+            {activeTab === 'teams' && (
+              <div className="space-y-4">
+                <h2 className="text-xl font-black uppercase tracking-tight text-slate-800">Your Squads</h2>
+                <div className="grid grid-cols-1 gap-4">
+                  {userTeams.length === 0 ? (
+                    <div className="p-12 text-center bg-slate-50 rounded-[40px] border border-dashed border-slate-200">
+                      <p className="text-slate-400 font-bold">You haven't formed a squad yet.</p>
+                    </div>
+                  ) : (
+                    userTeams.map(team => (
+                      <div key={team.id} className="bg-white p-6 rounded-[32px] border border-slate-200 flex items-center justify-between group shadow-sm hover:shadow-xl transition-all">
+                        <div className="flex items-center gap-4">
+                          <div className="w-14 h-14 bg-slate-50 rounded-[20px] flex items-center justify-center overflow-hidden border border-slate-100">
+                            {team.logoURL ? <img src={team.logoURL} className="w-full h-full object-cover" /> : <Users className="text-slate-300" />}
+                          </div>
+                          <div>
+                            <h4 className="font-black text-slate-800 uppercase tracking-tight">{team.name}</h4>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">ID: {team.id.slice(0, 8)}</p>
+                          </div>
+                        </div>
+                        <button className="p-4 bg-slate-50 rounded-2xl text-slate-400 hover:text-emerald-500 transition-colors">
+                          <Settings className="w-5 h-5" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
-              <div className="bg-white p-6 rounded-3xl border border-slate-200 text-center">
-                <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Matches</p>
-                <p className="text-3xl font-black text-slate-900">{careerStats.matches}</p>
-              </div>
-              <div className="bg-white p-6 rounded-3xl border border-slate-200 text-center">
-                <div className="flex items-center justify-center gap-2">
-                  <div className="flex flex-col">
-                    <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Y/R</p>
+            )}
+
+            {activeTab === 'profile' && (
+              <div className="space-y-8">
+                {/* Career Summary */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="bg-white p-6 rounded-[32px] border border-slate-200 text-center flex flex-col items-center shadow-sm">
+                    <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1 flex items-center gap-1">
+                      <SoccerIcon className="w-3 h-3" /> Goals
+                    </p>
+                    <p className="text-3xl font-black text-emerald-500">{careerStats.goals}</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-[32px] border border-slate-200 text-center shadow-sm">
+                    <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Assists</p>
+                    <p className="text-3xl font-black text-blue-500">{careerStats.assists}</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-[32px] border border-slate-200 text-center shadow-sm">
+                    <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Matches</p>
+                    <p className="text-3xl font-black text-slate-900">{careerStats.matches}</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-[32px] border border-slate-200 text-center shadow-sm">
+                    <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Yellow/Red</p>
                     <p className="text-xl font-black text-slate-900">{careerStats.yellow}/{careerStats.red}</p>
                   </div>
                 </div>
-              </div>
-            </div>
 
-            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
-              <div className="p-8 border-b border-slate-100">
-                <h3 className="text-lg font-black uppercase tracking-tighter mb-4">Account Information</h3>
+                {/* Management Section - Where delete button shows (Profiles ONLY) */}
                 <div className="space-y-4">
-                  <div className="flex justify-between py-3 border-b border-slate-50">
-                    <span className="text-slate-400 font-bold text-xs uppercase">Display Name</span>
-                    <span className="font-black text-slate-800">{user.displayName}</span>
+                  <h3 className="text-lg font-black uppercase tracking-tighter">Arena Management (Destructive)</h3>
+                  <div className="grid grid-cols-1 gap-3">
+                    {userTournaments.map(t => (
+                      <div key={t.id} className="bg-white p-6 rounded-[32px] border border-slate-200 flex items-center justify-between shadow-sm">
+                        <div className="flex items-center gap-4">
+                          <Trophy className="w-5 h-5 text-slate-200" />
+                          <span className="font-bold text-slate-700">{t.name}</span>
+                        </div>
+                        <button 
+                          onClick={() => handleDeleteTournament(t.id)}
+                          className={`p-3 rounded-2xl transition-all flex items-center gap-2 group ${isDeletingId === t.id ? 'bg-red-500 text-white scale-105' : 'bg-red-50 text-red-500 hover:bg-red-500 hover:text-white'}`}
+                        >
+                          <Trash2 className="w-5 h-5" />
+                          <span className="text-[10px] font-black uppercase tracking-widest">{isDeletingId === t.id ? 'Confirm?' : 'Delete'}</span>
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                  <div className="flex justify-between py-3 border-b border-slate-50">
-                    <span className="text-slate-400 font-bold text-xs uppercase">Email Address</span>
-                    <span className="font-black text-slate-800">{user.email}</span>
-                  </div>
-                  <div className="flex justify-between py-3 border-b border-slate-50">
-                    <span className="text-slate-400 font-bold text-xs uppercase">User ID</span>
-                    <span className="font-mono text-[10px] text-slate-400">{user.uid}</span>
+                </div>
+
+                <div className="bg-white rounded-[32px] border border-slate-200 overflow-hidden shadow-sm">
+                  <div className="p-8 border-b border-slate-100">
+                    <h3 className="text-lg font-black uppercase tracking-tighter mb-4">Official Bio</h3>
+                    <div className="space-y-4">
+                      <div className="flex justify-between py-3 border-b border-slate-50">
+                        <span className="text-slate-400 font-bold text-xs uppercase">Display Name</span>
+                        <span className="font-black text-slate-800">{user.displayName}</span>
+                      </div>
+                      <div className="flex justify-between py-3 border-b border-slate-50">
+                        <span className="text-slate-400 font-bold text-xs uppercase">Email</span>
+                        <span className="font-black text-slate-800">{user.email}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
-              <div className="p-6 bg-slate-50 flex items-center justify-between">
-                <button 
-                  onClick={() => auth.signOut()}
-                  className="flex items-center gap-2 text-red-500 font-black text-xs uppercase tracking-widest hover:text-red-600 transition-colors"
-                >
-                  <LogOut className="w-4 h-4" /> Sign Out
-                </button>
-              </div>
-            </div>
-
-            {/* Career History */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-black uppercase tracking-tighter">Career History</h3>
-              <div className="grid grid-cols-1 gap-3">
-                {careerTeams.length === 0 ? (
-                  <div className="p-8 text-center bg-slate-100 rounded-3xl border border-dashed border-slate-200">
-                    <p className="text-slate-400 font-bold text-sm uppercase">No past teams recorded.</p>
-                  </div>
-                ) : (
-                  careerTeams.map((ct, idx) => (
-                    <div key={`${ct.teamId}-${idx}`} className="bg-white p-6 rounded-3xl border border-slate-200 flex items-center justify-between shadow-sm">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center">
-                          <Shield className="w-5 h-5 text-emerald-500" />
-                        </div>
-                        <div>
-                          <p className="font-bold text-slate-800">{ct.name}</p>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Team ID: {ct.teamId.slice(0, 8)}</p>
-                        </div>
-                      </div>
-                      <Trophy className="w-5 h-5 text-yellow-500/50" />
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </motion.div>
-    </div>
-  );
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+    );
 }
 
 function JoinTeamView({ tournamentId, teamId, user, onSuccess, onCancel }: { tournamentId: string, teamId: string, user: FirebaseUser | null, onSuccess: () => void, onCancel: () => void }) {
