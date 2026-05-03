@@ -1740,6 +1740,40 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
             <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">{tournament.type}</div>
           </div>
           <h1 className="text-4xl md:text-5xl font-black tracking-tighter leading-none">{tournament.name}</h1>
+          {(() => {
+            const finalMatch = matches.find(m => m.round === 'Final' && m.status === 'finished');
+            if (finalMatch) {
+              const isAWinner = finalMatch.scoreA > finalMatch.scoreB ||
+                (finalMatch.scoreA === finalMatch.scoreB && (finalMatch.pensA || 0) > (finalMatch.pensB || 0));
+              const champion = teams.find(t => t.id === (isAWinner ? finalMatch.teamAId : finalMatch.teamBId));
+              if (champion) return (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: -6 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  className="flex items-center gap-2.5 bg-amber-50 border border-amber-200 px-4 py-2 rounded-full w-fit"
+                >
+                  <Trophy className="w-4 h-4 text-amber-500" />
+                  <span className="text-amber-700 font-black text-sm tracking-wide">{champion.name}</span>
+                  <span className="text-[10px] font-black text-amber-400 uppercase tracking-[0.2em]">Champions</span>
+                </motion.div>
+              );
+            }
+            if (tournament.type === 'league' && matches.length > 0 && matches.every(m => m.status === 'finished')) {
+              const leader = getStandingsForGroup(undefined)[0];
+              if (leader) return (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: -6 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  className="flex items-center gap-2.5 bg-amber-50 border border-amber-200 px-4 py-2 rounded-full w-fit"
+                >
+                  <Trophy className="w-4 h-4 text-amber-500" />
+                  <span className="text-amber-700 font-black text-sm tracking-wide">{leader.name}</span>
+                  <span className="text-[10px] font-black text-amber-400 uppercase tracking-[0.2em]">Champions</span>
+                </motion.div>
+              );
+            }
+            return null;
+          })()}
           <div className="flex items-center gap-4">
             <p className="text-slate-500 font-medium max-w-2xl">{tournament.description}</p>
             <button 
@@ -1966,8 +2000,10 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
                         const teamA = teams.find(t => t.id === m.teamAId);
                         const teamB = teams.find(t => t.id === m.teamBId);
                         const isFinished = m.status === 'finished';
-                        const winnerA = isFinished && m.scoreA > m.scoreB;
-                        const winnerB = isFinished && m.scoreB > m.scoreA;
+                        const isPenWin = m.scoreA === m.scoreB && (m.pensA !== undefined || m.pensB !== undefined);
+                        const winnerA = isFinished && (m.scoreA > m.scoreB || (isPenWin && (m.pensA || 0) > (m.pensB || 0)));
+                        const winnerB = isFinished && (m.scoreB > m.scoreA || (isPenWin && (m.pensB || 0) > (m.pensA || 0)));
+                        const hadAET = isFinished && events.some(e => e.matchId === m.id && e.type === 'aet');
                         
                         return (
                           <div 
@@ -1981,7 +2017,7 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
                                 <span className={`text-[9px] md:text-[10px] font-black uppercase tracking-tighter ${
                                   isFinished ? 'text-slate-400' : m.status === 'live' ? 'text-emerald-500 animate-pulse' : 'text-slate-300'
                                 }`}>
-                                  {isFinished ? 'FT' : (
+                                  {isFinished ? (hadAET ? 'AET' : 'FT') : (
                                     <span className="flex items-center gap-1">
                                       {m.status === 'live' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
                                       {m.status === 'live' ? 'Live' : m.status === 'scheduled' ? 'vs' : m.status}
