@@ -16,22 +16,82 @@ import {
   serverTimestamp, 
   doc, 
   getDocFromServer,
+  getDoc,
   setDoc,
   collectionGroup,
   where,
   getDocs,
   orderBy,
-  limit
+  limit,
+  Timestamp
 } from 'firebase/firestore';
 import { auth, db, OperationType, handleFirestoreError } from './lib/firebase';
 import { Tournament, Match, Team, User, Player, MatchEvent, MatchEventType, GoalType } from './types';
-import { Trophy, Users, LayoutDashboard, Plus, Play, LogIn, LogOut, ChevronRight, User as UserIcon, Calendar, Zap, Star, Shield, Target, MessageSquare, TrendingUp, RefreshCw, Send, ArrowUp, ArrowDown, X, RotateCcw, Settings, Trash2, Pause, Circle, Footprints } from 'lucide-react';
+import { Trophy, Users, LayoutDashboard, Plus, Play, LogIn, LogOut, ChevronRight, User as UserIcon, Calendar, Zap, Star, Shield, Target, MessageSquare, TrendingUp, RefreshCw, Send, ArrowUp, ArrowDown, X, RotateCcw, Settings, Trash2, Pause, Circle, Footprints, Menu, ArrowLeftRight, Hash, Activity, HelpingHand, LandPlot } from 'lucide-react';
 import { GiSoccerBall } from 'react-icons/gi';
 import { motion, AnimatePresence } from 'motion/react';
 
 const SoccerIcon = ({ className }: { className?: string }) => {
   const Icon = GiSoccerBall as any;
   return <Icon className={className} />;
+};
+
+const PitchIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 100 64" fill="none" xmlns="http://www.w3.org/2000/svg" className={className} stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="94" height="58" rx="4" />
+    <line x1="50" y1="3" x2="50" y2="61" />
+    <circle cx="50" cy="32" r="10" />
+    <rect x="3" y="20" width="12" height="24" />
+    <rect x="85" y="20" width="12" height="24" />
+    <path d="M15 26a8 8 0 0 1 0 12" />
+    <path d="M85 26a8 8 0 0 0 0 12" />
+  </svg>
+);
+
+const provider = new GoogleAuthProvider();
+
+const positionOrder: Record<string, number> = {
+  'FWD': 1,
+  'MID': 2,
+  'DEF': 3,
+  'GK': 4,
+  'SUB': 5
+};
+
+const sortPlayersByPosition = (players: Player[]) => {
+  return [...players].sort((a, b) => {
+    const orderA = positionOrder[a.position || 'SUB'] || 99;
+    const orderB = positionOrder[b.position || 'SUB'] || 99;
+    if (orderA !== orderB) return orderA - orderB;
+    return a.name.localeCompare(b.name);
+  });
+};
+
+const formatTeamName = (name: string) => {
+  if (!name) return "";
+  return name
+    .replace(/\bFC\b/gi, '')
+    .replace(/\bF\.C\.?\b/gi, '')
+    .replace(/\bFootball Club\b/gi, '')
+    .trim();
+};
+
+const getTeamShortName = (team?: Team, placeholder?: string) => {
+  if (team?.shortName) return team.shortName;
+  if (team) {
+    const original = team.name.trim();
+    if (original.toUpperCase().startsWith("FC ")) {
+      const words = original.split(/\s+/);
+      if (words.length > 1) return ("FC" + words[1].charAt(0)).toUpperCase();
+    }
+    if (original.toUpperCase().endsWith(" FC")) {
+      const words = original.split(/\s+/);
+      if (words.length > 1) return (words[0].charAt(0) + "FC").toUpperCase();
+    }
+    const sanitized = formatTeamName(team.name);
+    return sanitized.substring(0, 3).toUpperCase();
+  }
+  return placeholder ? placeholder.substring(0, 3).toUpperCase() : 'TBD';
 };
 
 // Sub-components will be defined or imported here
@@ -174,23 +234,50 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans overflow-x-hidden">
-      {/* Mobile Menu Toggle - Floating Glass Button */}
-      <div className="fixed top-6 left-6 z-[110] lg:hidden">
-        <button 
-          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          className="p-4 bg-white/60 backdrop-blur-3xl border border-white/40 rounded-2xl shadow-xl hover:bg-white/80 transition-all active:scale-95 group"
-        >
-          {isSidebarOpen ? (
-            <X className="w-6 h-6 text-slate-600" />
-          ) : (
-            <div className="space-y-1">
-              <div className="w-6 h-0.5 bg-slate-900 rounded-full" />
-              <div className="w-4 h-0.5 bg-emerald-500 rounded-full group-hover:w-6 transition-all" />
-              <div className="w-6 h-0.5 bg-slate-900 rounded-full" />
+      {/* Static Horizontal Top Header */}
+      <header className="sticky top-0 z-[100] w-full bg-white/70 backdrop-blur-3xl border-b border-black/5 px-4 md:px-8 h-16 md:h-20 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={() => setIsSidebarOpen(true)}
+            className="p-2.5 bg-slate-100 rounded-xl lg:hidden text-slate-600 hover:bg-emerald-50 hover:text-emerald-500 transition-all active:scale-95"
+          >
+            <Menu className="w-6 h-6" />
+          </button>
+          
+          <div 
+            className="flex items-center gap-2 md:gap-3 cursor-pointer group" 
+            onClick={() => { setView('home'); setSelectedTournament(null); }}
+          >
+            <div className="bg-emerald-500 p-1.5 md:p-2 rounded-xl shadow-lg shadow-emerald-500/20 group-hover:rotate-6 transition-transform">
+              <Trophy className="text-white w-5 h-5 md:w-6 md:h-6" />
             </div>
+            <span className="font-black text-xl md:text-2xl tracking-tighter uppercase italic text-slate-900">Kickivo</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {user ? (
+            <button 
+              onClick={() => { setView('dashboard'); setDashboardTab('profile'); }}
+              className="group flex items-center gap-2.5 p-1 bg-black/5 rounded-full hover:bg-black/10 transition-all border border-transparent hover:border-black/5"
+            >
+              <img 
+                src={user.photoURL || ''} 
+                alt="" 
+                className="w-8 h-8 md:w-10 md:h-10 rounded-full border-2 border-white shadow-sm group-hover:scale-105 transition-transform" 
+              />
+              <span className="hidden sm:inline-block pr-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Profile</span>
+            </button>
+          ) : (
+            <button 
+              onClick={login}
+              className="flex items-center gap-2 bg-slate-900 text-white px-5 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/20"
+            >
+              <LogIn className="w-4 h-4" /> Sign In
+            </button>
           )}
-        </button>
-      </div>
+        </div>
+      </header>
 
       <AnimatePresence>
         {globalError && (
@@ -230,7 +317,7 @@ export default function App() {
       </AnimatePresence>
       {/* Top Navbar Removed - Replaced by Side Panel */}
 
-      <div className="max-w-7xl mx-auto px-4 pt-4 md:pt-12 pb-24 md:pb-12 w-full lg:pl-0">
+      <div className="max-w-7xl mx-auto px-4 pt-8 md:pt-12 pb-24 md:pb-12 w-full lg:pl-0">
         <div className="flex flex-col lg:flex-row gap-8 min-h-[80vh] relative">
           
           {/* Sidebar Drawer Container */}
@@ -240,8 +327,8 @@ export default function App() {
                 initial={{ x: -300, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
                 exit={{ x: -300, opacity: 0 }}
-                transition={{ type: 'spring', damping: 25, stiffness: 120 }}
-                className={`fixed lg:sticky top-0 lg:top-12 left-0 h-screen lg:h-auto z-[200] lg:z-0 w-80 lg:w-72 shrink-0 p-4 lg:p-0 transition-all ${isSidebarOpen ? 'block' : 'hidden lg:block'}`}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className={`fixed lg:sticky top-0 lg:top-0 left-0 h-screen z-[200] lg:z-0 w-80 lg:w-72 shrink-0 transition-all ${isSidebarOpen ? 'block' : 'hidden lg:block'}`}
               >
                 {/* Mobile Backdrop */}
                 <div 
@@ -249,7 +336,7 @@ export default function App() {
                   onClick={() => setIsSidebarOpen(false)}
                 />
 
-                <div className="bg-white/80 backdrop-blur-3xl rounded-[40px] lg:rounded-[32px] border border-white/40 p-6 lg:p-8 shadow-[0_30px_70px_rgba(0,0,0,0.15)] flex flex-col h-full lg:h-auto overflow-y-auto lg:overflow-visible">
+                <div className="bg-white/90 backdrop-blur-3xl lg:border-r border-black/5 p-6 lg:p-8 flex flex-col h-full overflow-y-auto lg:overflow-visible">
                   {/* Branding Header with Icon & Logo */}
                   <div 
                     className="flex items-center gap-4 cursor-pointer group pb-8 mb-6 border-b border-black/5" 
@@ -258,7 +345,7 @@ export default function App() {
                     <div className="relative">
                       <div className="absolute inset-0 bg-emerald-400 blur-xl opacity-30 group-hover:opacity-50 transition-opacity" />
                       <div className="bg-emerald-500 p-2.5 rounded-2xl shadow-lg shadow-emerald-500/20 group-hover:rotate-6 transition-transform relative z-10">
-                        <Trophy className="text-white w-6 h-6" />
+                        <PitchIcon className="text-white w-6 h-6" />
                       </div>
                     </div>
                     <div>
@@ -294,7 +381,7 @@ export default function App() {
                           onClick={() => { setView('home'); setIsSidebarOpen(false); }}
                           className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all group ${view === 'home' ? 'bg-emerald-500 text-white shadow-xl shadow-emerald-500/30 font-black' : 'text-slate-500 hover:bg-black/5'}`}
                         >
-                          <Zap className={`w-5 h-5 ${view === 'home' ? 'text-white' : 'text-emerald-500'}`} />
+                          <PitchIcon className={`w-5 h-5 ${view === 'home' ? 'text-white' : 'text-emerald-500'}`} />
                           <span className="text-[10px] uppercase tracking-widest">Explore Matches</span>
                         </button>
                         <button 
@@ -333,7 +420,7 @@ export default function App() {
                           className="w-full flex items-center gap-4 p-4 rounded-2xl text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all font-black text-[10px] uppercase tracking-widest group"
                         >
                           <LogOut className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-                          <span>Exit System</span>
+                          <span>Logout</span>
                         </button>
                       </div>
                     </div>
@@ -437,7 +524,7 @@ export default function App() {
       {user && (
         <nav className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] w-[90%] h-16 bg-white/60 backdrop-blur-2xl border border-white/40 rounded-[32px] shadow-[0_12px_40px_rgba(0,0,0,0.12)] flex items-center justify-around px-2">
           {[
-            { id: 'home', icon: Zap, label: 'Explore' },
+            { id: 'home', icon: PitchIcon, label: 'Explore' },
             { id: 'tournaments', icon: Trophy, label: 'Arena', tab: 'tournaments' },
             { id: 'teams', icon: Users, label: 'Teams', tab: 'teams' },
             { id: 'profile', icon: UserIcon, label: 'Me', tab: 'profile' }
@@ -541,8 +628,12 @@ function CreateTournamentView({ user, onSuccess, onError }: { user: FirebaseUser
   const [numberOfGroups, setNumberOfGroups] = useState(2);
   const [advancingPerGroup, setAdvancingPerGroup] = useState(2);
   const [maxTeams, setMaxTeams] = useState(8);
+  const [matchesPerDay, setMatchesPerDay] = useState(8);
+  const [startTime, setStartTime] = useState('10:00');
+  const [matchDuration, setMatchDuration] = useState(30);
+  const [homeAwayGroup, setHomeAwayGroup] = useState(false);
+  const [homeAwayKnockout, setHomeAwayKnockout] = useState(false);
   const [useDemoData, setUseDemoData] = useState(false);
-  const [demoTeamsCount, setDemoTeamsCount] = useState(4);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -558,6 +649,11 @@ function CreateTournamentView({ user, onSuccess, onError }: { user: FirebaseUser
         numberOfGroups: type === 'league_playoff' ? numberOfGroups : null,
         advancingPerGroup: type === 'league_playoff' ? advancingPerGroup : null,
         maxTeams: Number(maxTeams),
+        matchesPerDay: Number(matchesPerDay),
+        startTime,
+        matchDuration: Number(matchDuration),
+        homeAwayGroup: type === 'knockout' ? false : homeAwayGroup,
+        homeAwayKnockout: type === 'league' ? false : homeAwayKnockout,
         creatorId: user.uid,
         status: 'upcoming',
         createdAt: new Date().toISOString()
@@ -565,7 +661,94 @@ function CreateTournamentView({ user, onSuccess, onError }: { user: FirebaseUser
 
       if (useDemoData) {
         // Create demo teams with recognizable names
-        const pool = ['Real Madrid', 'FC Barcelona', 'Manchester City', 'Liverpool FC', 'Arsenal', 'Chelsea', 'PSG', 'Bayern Munich', 'Juventus', 'AC Milan'];
+        const pool = [
+          'Real Madrid', 'FC Barcelona', 'Manchester City', 'Liverpool FC', 'Arsenal', 
+          'Chelsea', 'PSG', 'Bayern Munich', 'Juventus', 'AC Milan', 
+          'Inter Milan', 'Manchester United', 'Atletico Madrid', 'Borussia Dortmund', 'Bayer Leverkusen', 'Tottenham'
+        ];
+        const realRosters: Record<string, string[]> = {
+          'Real Madrid': [
+            'Thibaut Courtois', 'Dani Carvajal', 'Eder Militao', 'Antonio Rudiger', 'Ferland Mendy',
+            'Federico Valverde', 'Aurelien Tchouameni', 'Jude Bellingham', 'Rodrygo Goes', 'Kylian Mbappe',
+            'Vinicius Junior', 'Endrick', 'Arda Guler', 'Eduardo Camavinga', 'Brahim Diaz'
+          ],
+          'FC Barcelona': [
+            'Ter Stegen', 'Jules Kounde', 'Pau Cubarsi', 'Ronald Araujo', 'Alejandro Balde',
+            'Frenkie de Jong', 'Pedri', 'Gavi', 'Lamine Yamal', 'Robert Lewandowski',
+            'Raphinha', 'Ferran Torres', 'Ilkay Gundogan', 'Andreas Christensen', 'Fermin Lopez'
+          ],
+          'Manchester City': [
+            'Ederson', 'Kyle Walker', 'Ruben Dias', 'Manuel Akanji', 'Josko Gvardiol',
+            'Rodri', 'Kevin De Bruyne', 'Bernardo Silva', 'Phil Foden', 'Erling Haaland',
+            'Jeremy Doku', 'Jack Grealish', 'Mateo Kovacic', 'John Stones', 'Nathan Ake'
+          ],
+          'Liverpool FC': [
+            'Alisson Becker', 'Trent Alexander-Arnold', 'Ibrahima Konate', 'Virgil van Dijk', 'Andrew Robertson',
+            'Alexis Mac Allister', 'Dominik Szoboszlai', 'Ryan Gravenberch', 'Mohamed Salah', 'Darwin Nunez',
+            'Luis Diaz', 'Cody Gakpo', 'Diogo Jota', 'Harvey Elliott', 'Curtis Jones'
+          ],
+          'Arsenal': [
+            'David Raya', 'Ben White', 'William Saliba', 'Gabriel Magalhaes', 'Riccardo Calafiori',
+            'Declan Rice', 'Martin Odegaard', 'Mikel Merino', 'Bukayo Saka', 'Kai Havertz',
+            'Gabriel Martinelli', 'Leandro Trossard', 'Gabriel Jesus', 'Jurrien Timber', 'Jorginho'
+          ],
+          'Chelsea': [
+            'Robert Sanchez', 'Reece James', 'Wesley Fofana', 'Levi Colwill', 'Marc Cucurella',
+            'Enzo Fernandez', 'Moises Caicedo', 'Cole Palmer', 'Noni Madueke', 'Nicolas Jackson',
+            'Christopher Nkunku', 'Jadon Sancho', 'Joao Felix', 'Pedro Neto', 'Romeo Lavia'
+          ],
+          'PSG': [
+            'Gianluigi Donnarumma', 'Achraf Hakimi', 'Marquinhos', 'Willian Pacho', 'Nuno Mendes',
+            'Warren Zaire-Emery', 'Vitinha', 'Fabian Ruiz', 'Ousmane Dembele', 'Bradley Barcola',
+            'Randal Kolo Muani', 'Goncalo Ramos', 'Marco Asensio', 'Lee Kang-in', 'Lucas Beraldo'
+          ],
+          'Bayern Munich': [
+            'Manuel Neuer', 'Joshua Kimmich', 'Dayot Upamecano', 'Kim Min-jae', 'Alphonso Davies',
+            'Aleksandar Pavlovic', 'Joao Palhinha', 'Jamal Musiala', 'Michael Olise', 'Harry Kane',
+            'Leroy Sane', 'Serge Gnabry', 'Thomas Muller', 'Kingsley Coman', 'Konrad Laimer'
+          ],
+          'Juventus': [
+            'Michele Di Gregorio', 'Nicolo Savona', 'Federico Gatti', 'Gleison Bremer', 'Andrea Cambiaso',
+            'Manuel Locatelli', 'Douglas Luiz', 'Teun Koopmeiners', 'Kenan Yildiz', 'Dusan Vlahovic',
+            'Nico Gonzalez', 'Francisco Conceicao', 'Khephren Thuram', 'Weston McKennie', 'Timothy Weah'
+          ],
+          'AC Milan': [
+            'Mike Maignan', 'Emerson Royal', 'Fikayo Tomori', 'Strahinja Pavlovic', 'Theo Hernandez',
+            'Youssouf Fofana', 'Tijjani Reijnders', 'Ruben Loftus-Cheek', 'Christian Pulisic', 'Alvaro Morata',
+            'Rafael Leao', 'Samuel Chukwueze', 'Tammy Abraham', 'Ismael Bennacer', 'Davide Calabria'
+          ],
+          'Inter Milan': [
+            'Yann Sommer', 'Benjamin Pavard', 'Francesco Acerbi', 'Alessandro Bastoni', 'Denzel Dumfries',
+            'Nicolo Barella', 'Hakan Calhanoglu', 'Henrikh Mkhitaryan', 'Federico Dimarco', 'Lautaro Martinez',
+            'Marcus Thuram', 'Mehdi Taremi', 'Davide Frattesi', 'Piotr Zielinski', 'Stefan de Vrij'
+          ],
+          'Manchester United': [
+            'Andre Onana', 'Diogo Dalot', 'Matthijs de Ligt', 'Lisandro Martinez', 'Noussair Mazraoui',
+            'Kobbie Mainoo', 'Manuel Ugarte', 'Bruno Fernandes', 'Alejandro Garnacho', 'Rasmus Hojlund',
+            'Marcus Rashford', 'Amad Diallo', 'Joshua Zirkzee', 'Harry Maguire', 'Christian Eriksen'
+          ],
+          'Atletico Madrid': [
+            'Jan Oblak', 'Nahuel Molina', 'Robin Le Normand', 'Jose Maria Gimenez', 'Reinildo',
+            'Rodrigo De Paul', 'Koke', 'Conor Gallagher', 'Antoine Griezmann', 'Julian Alvarez',
+            'Alexander Sorloth', 'Samuel Lino', 'Marcos Llorente', 'Angel Correa', 'Rodrigo Riquelme'
+          ],
+          'Borussia Dortmund': [
+            'Gregor Kobel', 'Yan Couto', 'Waldemar Anton', 'Nico Schlotterbeck', 'Julian Ryerson',
+            'Emre Can', 'Pascal Gross', 'Julian Brandt', 'Marcel Sabitzer', 'Serhou Guirassy',
+            'Karim Adeyemi', 'Jamie Gittens', 'Donyell Malen', 'Maximilian Beier', 'Felix Nmecha'
+          ],
+          'Bayer Leverkusen': [
+            'Lukas Hradecky', 'Edmond Tapsoba', 'Jonathan Tah', 'Piero Hincapie', 'Jeremie Frimpong',
+            'Granit Xhaka', 'Robert Andrich', 'Alejandro Grimaldo', 'Florian Wirtz', 'Victor Boniface',
+            'Martin Terrier', 'Patrik Schick', 'Aleix Garcia', 'Jonas Hofmann', 'Exequiel Palacios'
+          ],
+          'Tottenham': [
+            'Guglielmo Vicario', 'Pedro Porro', 'Cristian Romero', 'Micky van de Ven', 'Destiny Udogie',
+            'Yves Bissouma', 'James Maddison', 'Rodrigo Bentancur', 'Dejan Kulusevski', 'Dominic Solanke',
+            'Heung-min Son', 'Brennan Johnson', 'Richarlison', 'Lucas Bergvall', 'Archie Gray'
+          ]
+        };
+
         const shortNames: Record<string, string> = {
           'Real Madrid': 'RM',
           'FC Barcelona': 'FCB',
@@ -574,25 +757,35 @@ function CreateTournamentView({ user, onSuccess, onError }: { user: FirebaseUser
           'Arsenal': 'ARS',
           'Chelsea': 'CHE',
           'PSG': 'PSG',
-          'Bayern Munich': 'BM',
+          'Bayern Munich': 'FCB',
           'Juventus': 'JUV',
-          'AC Milan': 'ACM'
+          'AC Milan': 'ACM',
+          'Inter Milan': 'INT',
+          'Manchester United': 'MU',
+          'Atletico Madrid': 'ATM',
+          'Borussia Dortmund': 'BVB',
+          'Bayer Leverkusen': 'B04',
+          'Tottenham': 'TOT'
         };
         
-        const actualTeamsCount = Math.min(Number(demoTeamsCount), Number(maxTeams));
+        const actualTeamsCount = Number(maxTeams);
         for (let tIdx = 0; tIdx < actualTeamsCount; tIdx++) {
-          const teamName = pool[tIdx % pool.length] + (tIdx >= pool.length ? ` ${Math.floor(tIdx / pool.length) + 1}` : '');
+          const baseTeamName = pool[tIdx % pool.length];
+          const teamName = baseTeamName + (tIdx >= pool.length ? ` ${Math.floor(tIdx / pool.length) + 1}` : '');
           const teamRef = await addDoc(collection(db, `tournaments/${docRef.id}/teams`), {
             name: teamName,
             createdAt: serverTimestamp(),
           });
 
-          // Add 12 players per team
+          // Add players - use real rosters if available, else generate
           const positions = ['GK', 'DEF', 'DEF', 'DEF', 'MID', 'MID', 'MID', 'FWD', 'FWD', 'SUB', 'SUB', 'SUB'];
-          const sn = shortNames[pool[tIdx % pool.length]] || teamName.split(' ').map(w => w[0]).join('').toUpperCase();
+          const sn = shortNames[baseTeamName] || teamName.split(' ').map(w => w[0]).join('').toUpperCase();
+          const roster = realRosters[baseTeamName];
+
           for (let i = 1; i <= 12; i++) {
+            const playerName = (roster && roster[i-1]) ? roster[i-1] : `${sn} Player ${i}`;
             await addDoc(collection(db, `tournaments/${docRef.id}/teams/${teamRef.id}/players`), {
-              name: `${sn} Player ${i}`,
+              name: playerName,
               number: i,
               position: positions[(i-1) % positions.length],
               tournamentId: docRef.id,
@@ -695,6 +888,72 @@ function CreateTournamentView({ user, onSuccess, onError }: { user: FirebaseUser
           </div>
         </div>
 
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase tracking-widest text-slate-400">Matches Per Day</label>
+            <input 
+              type="number"
+              required
+              min="1"
+              max="24"
+              value={matchesPerDay}
+              onChange={e => setMatchesPerDay(Number(e.target.value))}
+              className="w-full bg-slate-50 px-5 py-4 rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+              placeholder="e.g. 8"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase tracking-widest text-slate-400">First Match Time</label>
+            <input 
+              type="time"
+              required
+              value={startTime}
+              onChange={e => setStartTime(e.target.value)}
+              className="w-full bg-slate-50 px-5 py-4 rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase tracking-widest text-slate-400">Match Duration (mins)</label>
+            <input 
+              type="number"
+              required
+              min="5"
+              max="180"
+              value={matchDuration}
+              onChange={e => setMatchDuration(Number(e.target.value))}
+              className="w-full bg-slate-50 px-5 py-4 rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+              placeholder="e.g. 30"
+            />
+          </div>
+          <div className="space-y-4 pt-4">
+             <div className="flex items-center gap-3">
+               <input 
+                 type="checkbox"
+                 id="ha-group"
+                 disabled={type === 'knockout'}
+                 checked={homeAwayGroup}
+                 onChange={e => setHomeAwayGroup(e.target.checked)}
+                 className="w-5 h-5 accent-emerald-500 cursor-pointer disabled:opacity-30"
+               />
+               <label htmlFor="ha-group" className={`text-xs font-bold text-slate-500 cursor-pointer ${type === 'knockout' ? 'opacity-30' : ''}`}>Home & Away (Groups)</label>
+             </div>
+             <div className="flex items-center gap-3">
+               <input 
+                 type="checkbox"
+                 id="ha-knockout"
+                 disabled={type === 'league'}
+                 checked={homeAwayKnockout}
+                 onChange={e => setHomeAwayKnockout(e.target.checked)}
+                 className="w-5 h-5 accent-emerald-500 cursor-pointer disabled:opacity-30"
+               />
+               <label htmlFor="ha-knockout" className={`text-xs font-bold text-slate-500 cursor-pointer ${type === 'league' ? 'opacity-30' : ''}`}>Home & Away (Knockout)</label>
+             </div>
+          </div>
+        </div>
+
         {type === 'league_playoff' && (
           <motion.div 
             initial={{ opacity: 0, height: 0 }}
@@ -733,32 +992,12 @@ function CreateTournamentView({ user, onSuccess, onError }: { user: FirebaseUser
               className="w-5 h-5 accent-emerald-500 cursor-pointer"
             />
             <label htmlFor="demo-data" className="text-sm font-bold text-slate-700 cursor-pointer flex-1">
-              Create with Demo Data <span className="text-[10px] text-red-500 uppercase tracking-tighter ml-1">(Testing Feature)</span>
-              <p className="text-[10px] text-slate-400 font-medium">Generates teams and 12 players per team automatically.</p>
+              Initialize with Full Demo Data <span className="text-[10px] text-red-500 uppercase tracking-tighter ml-1">(Live Testing)</span>
+              <p className="text-[10px] text-slate-400 font-medium">Automatically populates all {maxTeams} team slots with realistic squads and players.</p>
             </label>
           </div>
           
-          {useDemoData && (
-            <motion.div 
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              className="space-y-2 pt-4 border-t border-slate-200"
-            >
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Number of Demo Teams</label>
-              <div className="flex items-center gap-4">
-                <input 
-                  type="range"
-                  min="2"
-                  max={maxTeams || 32}
-                  value={demoTeamsCount}
-                  onChange={e => setDemoTeamsCount(Number(e.target.value))}
-                  className="flex-1 accent-emerald-500"
-                />
-                <span className="text-lg font-black text-emerald-500 w-8">{demoTeamsCount}</span>
-              </div>
-              <p className="text-[10px] text-slate-400 italic">Limited by "Total Teams" setting above.</p>
-            </motion.div>
-          )}
+          {/* Demo teams count input removed - uses maxTeams by default */}
         </div>
 
         <button 
@@ -773,8 +1012,102 @@ function CreateTournamentView({ user, onSuccess, onError }: { user: FirebaseUser
   );
 }
 
+function TeamSlot({ id, teams, small = false }: { id?: string, teams: Team[], small?: boolean }) {
+  const team = teams.find(t => t.id === id);
+  if (small) {
+    return (
+      <div className="w-8 h-8 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center overflow-hidden shrink-0">
+        {team?.logoURL ? (
+          <img src={team.logoURL} className="w-full h-full object-cover" alt="" />
+        ) : (
+          <div className="text-[10px] font-black text-slate-300 italic uppercase">{team?.name?.charAt(0)}</div>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div className="w-14 h-14 md:w-16 md:h-16 rounded-[20px] bg-slate-50 border-2 border-slate-200 flex items-center justify-center p-2 shadow-sm overflow-hidden">
+        {team?.logoURL ? (
+          <img src={team.logoURL} className="w-full h-full object-contain" alt="" />
+        ) : (
+          <div className="text-xl font-black text-slate-300 uppercase">{team?.name?.charAt(0)}</div>
+        )}
+      </div>
+      <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{getTeamShortName(team)}</div>
+    </div>
+  );
+}
+
+function BracketMatch({ match, teams, position, onSelect, compact = false }: { match: Match, teams: Team[], position: 'left' | 'right', onSelect: (m: Match) => void, key?: React.Key, compact?: boolean }) {
+  const teamA = teams.find(t => t.id === match.teamAId);
+  const teamB = teams.find(t => t.id === match.teamBId);
+  const isFinished = match.status === 'finished';
+  const isAWinner = isFinished && (match.scoreA > match.scoreB || (match.scoreA === match.scoreB && (match.pensA || 0) > (match.pensB || 0)));
+  const isBWinner = isFinished && (match.scoreB > match.scoreA || (match.scoreA === match.scoreB && (match.pensB || 0) > (match.pensA || 0)));
+
+  const displayAName = teamA ? formatTeamName(teamA.name) : (match.placeholderA || 'TBD');
+  const displayAShort = getTeamShortName(teamA, match.placeholderA);
+  const displayBName = teamB ? formatTeamName(teamB.name) : (match.placeholderB || 'TBD');
+  const displayBShort = getTeamShortName(teamB, match.placeholderB);
+
+  return (
+    <div className="relative group">
+      {match.leg && (
+        <div className={`absolute -top-3 ${position === 'left' ? 'right-4 text-right' : 'left-4 text-left'} bg-slate-50 text-[8px] font-black uppercase tracking-widest text-slate-400 px-2 py-0.5 rounded-full border border-slate-100 z-10 shadow-sm transition-all group-hover:bg-emerald-50 group-hover:text-emerald-500`}>
+          Leg {match.leg}
+        </div>
+      )}
+      <div 
+        onClick={() => onSelect(match)}
+        className={`${compact ? 'w-full' : 'w-64'} bg-white border border-slate-200 rounded-3xl p-5 cursor-pointer hover:border-emerald-500/50 transition-all shadow-sm hover:shadow-md ${position === 'left' ? 'text-right' : 'text-left'}`}
+      >
+        <div className="space-y-3">
+          <div className={`flex items-center gap-3 ${position === 'left' ? 'flex-row-reverse' : 'flex-row'}`}>
+            <TeamSlot id={match.teamAId} teams={teams} small />
+            <div className={`flex-1 min-w-0 ${position === 'left' ? 'text-right' : 'text-left'}`}>
+              <div className={`text-xs font-black uppercase tracking-tighter truncate ${isAWinner ? 'text-emerald-500' : 'text-slate-900'}`}>
+                {displayAName}
+              </div>
+              <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{displayAShort}</div>
+            </div>
+            <div className="flex flex-col items-center">
+              <span className={`text-xl font-black tabular-nums ${isAWinner ? 'text-emerald-500' : 'text-slate-300'}`}>
+                {match.status === 'scheduled' ? '-' : match.scoreA}
+              </span>
+              {match.pensA !== undefined && (
+                <span className="text-[8px] font-black text-amber-500 mt-[-4px]">({match.pensA})</span>
+              )}
+            </div>
+          </div>
+          <div className={`flex items-center gap-3 ${position === 'left' ? 'flex-row-reverse' : 'flex-row'}`}>
+            <TeamSlot id={match.teamBId} teams={teams} small />
+            <div className={`flex-1 min-w-0 ${position === 'left' ? 'text-right' : 'text-left'}`}>
+              <div className={`text-xs font-black uppercase tracking-tighter truncate ${isBWinner ? 'text-emerald-500' : 'text-slate-900'}`}>
+                {displayBName}
+              </div>
+              <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{displayBShort}</div>
+            </div>
+            <div className="flex flex-col items-center">
+              <span className={`text-xl font-black tabular-nums ${isBWinner ? 'text-emerald-500' : 'text-slate-300'}`}>
+                {match.status === 'scheduled' ? '-' : match.scoreB}
+              </span>
+              {match.pensB !== undefined && (
+                <span className="text-[8px] font-black text-amber-500 mt-[-4px]">({match.pensB})</span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      {/* Curved Connectors */}
+      <div className={`hidden md:block absolute top-1/2 ${position === 'left' ? '-right-12' : '-left-12'} w-12 h-px bg-slate-200 -z-0`} />
+    </div>
+  );
+}
+
 function TournamentView({ tournament, user, onBack, onError, notify }: { tournament: Tournament, user: FirebaseUser | null, onBack: () => void, onError: (err: any) => void, notify: (msg: string) => void }) {
-  const [activeTab, setActiveTab] = useState<'matches' | 'teams' | 'standings' | 'scorers'>('matches');
+  const [activeTab, setActiveTab] = useState<'matches' | 'teams' | 'standings' | 'stats' | 'knockout'>('matches');
   const [teams, setTeams] = useState<Team[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
   const [events, setEvents] = useState<MatchEvent[]>([]);
@@ -785,6 +1118,59 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
   const [showAddTeam, setShowAddTeam] = useState(false);
   const [showAddMatch, setShowAddMatch] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+
+  const tiesByRound = useMemo(() => {
+    const playoffMatches = matches.filter(m => m.group === 'Playoffs');
+    const rounds = ['Round of 16', 'Quarter-final', 'Semi-final', 'Final'];
+    const result: Record<string, Match[][]> = {};
+    
+    rounds.forEach(r => {
+      const rm = playoffMatches.filter(m => m.round === r);
+      if (tournament.homeAwayKnockout) {
+        const ties: Record<string, Match[]> = {};
+        rm.forEach(m => {
+          const tid = m.tieId || m.id;
+          if (!ties[tid]) ties[tid] = [];
+          ties[tid].push(m);
+        });
+        result[r] = Object.values(ties).sort((a, b) => {
+          const timeA = a[0].kickoff?.seconds || a[0].createdAt?.seconds || 0;
+          const timeB = b[0].kickoff?.seconds || b[0].createdAt?.seconds || 0;
+          return timeA - timeB;
+        });
+      } else {
+        result[r] = rm.map(m => [m]);
+      }
+    });
+    return result;
+  }, [matches, tournament.homeAwayKnockout]);
+
+  const allMatchesScheduled = useMemo(() => {
+    if (teams.length < 2) return false;
+    if (tournament.type === 'league') {
+      const base = (teams.length * (teams.length - 1)) / 2;
+      const expected = tournament.homeAwayGroup ? base * 2 : base;
+      return matches.length >= expected;
+    }
+    if (tournament.type === 'league_playoff') {
+      const numGroups = tournament.numberOfGroups || 2;
+      let totalExpected = 0;
+      for (let i = 0; i < numGroups; i++) {
+        const gName = `Group ${String.fromCharCode(65 + i)}`;
+        const gTeams = teams.filter(t => t.group === gName).length;
+        if (gTeams >= 2) {
+          const base = (gTeams * (gTeams - 1)) / 2;
+          totalExpected += tournament.homeAwayGroup ? base * 2 : base;
+        }
+      }
+      const hasPlayoffs = matches.some(m => m.group === 'Playoffs');
+      return (matches.length >= totalExpected && totalExpected > 0) || hasPlayoffs;
+    }
+    if (tournament.type === 'knockout') {
+      return matches.length > 0;
+    }
+    return false;
+  }, [teams, matches, tournament]);
 
   useEffect(() => {
     const teamsQ = query(collection(db, `/tournaments/${tournament.id}/teams`));
@@ -839,6 +1225,8 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
     if (teams.length < 2) return onError('Need at least 2 teams to schedule');
     setIsGenerating(true);
     try {
+      const allMatches: any[] = [];
+      
       if (tournament.type === 'league_playoff') {
         const numGroups = tournament.numberOfGroups || 2;
         const shuffledTeams = [...teams].sort(() => Math.random() - 0.5);
@@ -850,12 +1238,10 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
           const groupName = `Group ${groupChar}`;
           const teamRef = doc(db, `/tournaments/${tournament.id}/teams/${shuffledTeams[i].id}`);
           await updateDoc(teamRef, { group: groupName });
-          
-          // Update local state copy for the next loop
           shuffledTeams[i] = { ...shuffledTeams[i], group: groupName };
         }
 
-        // Generate round robin for each group
+        // Generate matches for each group
         for (let g = 0; g < numGroups; g++) {
           const groupChar = String.fromCharCode(65 + g);
           const groupName = `Group ${groupChar}`;
@@ -863,16 +1249,18 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
           
           for (let i = 0; i < groupTeams.length; i++) {
             for (let j = i + 1; j < groupTeams.length; j++) {
-              await addDoc(collection(db, `/tournaments/${tournament.id}/matches`), {
+              allMatches.push({
                 teamAId: groupTeams[i].id,
                 teamBId: groupTeams[j].id,
-                scoreA: 0,
-                scoreB: 0,
-                status: 'scheduled',
-                tournamentId: tournament.id,
                 group: groupName,
-                createdAt: serverTimestamp()
               });
+              if (tournament.homeAwayGroup) {
+                allMatches.push({
+                  teamAId: groupTeams[j].id,
+                  teamBId: groupTeams[i].id,
+                  group: groupName,
+                });
+              }
             }
           }
         }
@@ -880,19 +1268,95 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
         // Simple Round Robin
         for (let i = 0; i < teams.length; i++) {
           for (let j = i + 1; j < teams.length; j++) {
-            await addDoc(collection(db, `/tournaments/${tournament.id}/matches`), {
+            allMatches.push({
               teamAId: teams[i].id,
               teamBId: teams[j].id,
+            });
+            if (tournament.homeAwayGroup) {
+              allMatches.push({
+                teamAId: teams[j].id,
+                teamBId: teams[i].id,
+              });
+            }
+          }
+        }
+      }
+
+      // Scheduling with rest logic
+      // Shuffle matches first for variety
+      allMatches.sort(() => Math.random() - 0.5);
+
+      const scheduledMatches: any[] = [];
+      const teamLastMatchTime: { [teamId: string]: number } = {};
+      
+      const REST_PERIOD = 60 * 60 * 1000; // 1 hour minimum rest
+      const MATCH_DURATION = (tournament.matchDuration || 30) * 60 * 1000;
+      const MATCHES_PER_DAY = tournament.matchesPerDay || 8;
+      const START_TIME_STR = tournament.startTime || '10:00';
+      const [startHour, startMin] = START_TIME_STR.split(':').map(Number);
+      
+      // Start from tomorrow at the preferred time
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() + 1);
+      startDate.setHours(startHour, startMin, 0, 0);
+      let currentStartTime = startDate.getTime();
+
+      let matchesScheduledCount = 0;
+
+      while (allMatches.length > 0) {
+        let matchFound = false;
+        for (let i = 0; i < allMatches.length; i++) {
+          const m = allMatches[i];
+          const lastA = teamLastMatchTime[m.teamAId] || 0;
+          const lastB = teamLastMatchTime[m.teamBId] || 0;
+
+          if (currentStartTime >= lastA + REST_PERIOD && currentStartTime >= lastB + REST_PERIOD) {
+            // Schedule it
+            scheduledMatches.push({
+              ...m,
+              kickoff: Timestamp.fromMillis(currentStartTime),
               scoreA: 0,
               scoreB: 0,
               status: 'scheduled',
               tournamentId: tournament.id,
-              createdAt: serverTimestamp()
+              createdAt: serverTimestamp(),
             });
+
+            teamLastMatchTime[m.teamAId] = currentStartTime + MATCH_DURATION;
+            teamLastMatchTime[m.teamBId] = currentStartTime + MATCH_DURATION;
+            
+            allMatches.splice(i, 1);
+            matchFound = true;
+            matchesScheduledCount++;
+
+            // Move to next slot
+            if (matchesScheduledCount % MATCHES_PER_DAY === 0) {
+              // Move to next day
+              const nextDay = new Date(currentStartTime);
+              nextDay.setDate(nextDay.getDate() + 1);
+              nextDay.setHours(startHour, startMin, 0, 0);
+              currentStartTime = nextDay.getTime();
+            } else {
+              currentStartTime += MATCH_DURATION;
+            }
+            break;
           }
         }
+
+        if (!matchFound) {
+          // No match fits the rest period in this slot, skip slot
+          currentStartTime += MATCH_DURATION;
+          // Avoid infinite loop if somehow impossible
+          if (currentStartTime > Date.now() + 30 * 24 * 60 * 60 * 1000) break;
+        }
       }
-      notify('Fixtures generated successfully!');
+
+      // Batch add
+      for (const m of scheduledMatches) {
+        await addDoc(collection(db, `/tournaments/${tournament.id}/matches`), m);
+      }
+
+      notify('Fixtures generated with smart scheduling!');
     } catch (err) {
       onError(err);
       handleFirestoreError(err, OperationType.WRITE, 'matches');
@@ -920,42 +1384,264 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
 
     setIsGenerating(true);
     try {
-        // Cross-group pairing if possible
-        if (numGroups === 2 && numAdvancing >= 1) {
-            const groupA = qualified['Group A'] || [];
-            const groupB = qualified['Group B'] || [];
-            if (groupA[0] && groupB[1]) {
-                await addDoc(collection(db, `/tournaments/${tournament.id}/matches`), {
-                    teamAId: groupA[0].id,
-                    teamBId: groupB[1].id,
-                    scoreA: 0, scoreB: 0, status: 'scheduled', tournamentId: tournament.id, group: 'Playoffs', createdAt: serverTimestamp()
+        const createMatch = async (matchData: any) => {
+            const docRef = await addDoc(collection(db, `/tournaments/${tournament.id}/matches`), {
+                scoreA: 0, 
+                scoreB: 0, 
+                status: 'scheduled', 
+                tournamentId: tournament.id, 
+                group: 'Playoffs', 
+                createdAt: serverTimestamp(),
+                ...matchData
+            });
+            return docRef.id;
+        };
+
+        const createMatchPair = async (matchData: any) => {
+            const tieId = `tie-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            const id1 = await createMatch({ 
+              ...matchData, 
+              ...(tournament.homeAwayKnockout ? { leg: 1, tieId } : {})
+            });
+            if (tournament.homeAwayKnockout) {
+                const id2 = await createMatch({
+                    ...matchData,
+                    ...(matchData.teamBId ? { teamAId: matchData.teamBId } : {}),
+                    ...(matchData.teamAId ? { teamBId: matchData.teamAId } : {}),
+                    ...(matchData.placeholderB ? { placeholderA: matchData.placeholderB } : {}),
+                    ...(matchData.placeholderA ? { placeholderB: matchData.placeholderA } : {}),
+                    leg: 2,
+                    tieId
+                });
+                return { leg1Id: id1, leg2Id: id2 };
+            }
+            return { leg1Id: id1 };
+        };
+
+        const count = advancingTeams.length;
+        if (count === 8) {
+            // Quarter-finals
+            const qfResults = [];
+            for (let i = 0; i < 8; i += 2) {
+                const res = await createMatchPair({
+                    teamAId: advancingTeams[i].id,
+                    teamBId: advancingTeams[i+1].id,
+                    round: 'Quarter-final'
+                });
+                qfResults.push(res);
+            }
+
+            // Semi-finals
+            const resSF1 = await createMatchPair({
+                round: 'Semi-final',
+                placeholderA: `Winner QF1`,
+                placeholderB: `Winner QF2`
+            });
+            const resSF2 = await createMatchPair({
+                round: 'Semi-final',
+                placeholderA: `Winner QF3`,
+                placeholderB: `Winner QF4`
+            });
+
+            // Final
+            const resF = await createMatchPair({
+                round: 'Final',
+                placeholderA: `Winner SF1`,
+                placeholderB: `Winner SF2`
+            });
+
+            // Link Successors
+            const getSuccessorIds = (res: any) => res.leg2Id ? `${res.leg1Id},${res.leg2Id}` : res.leg1Id;
+
+            const matchRefs = [
+                { id: qfResults[0].leg2Id || qfResults[0].leg1Id, successorMatchId: getSuccessorIds(resSF1), successorSide: 'A' },
+                { id: qfResults[1].leg2Id || qfResults[1].leg1Id, successorMatchId: getSuccessorIds(resSF1), successorSide: 'B' },
+                { id: qfResults[2].leg2Id || qfResults[2].leg1Id, successorMatchId: getSuccessorIds(resSF2), successorSide: 'A' },
+                { id: qfResults[3].leg2Id || qfResults[3].leg1Id, successorMatchId: getSuccessorIds(resSF2), successorSide: 'B' },
+                { id: resSF1.leg2Id || resSF1.leg1Id, successorMatchId: getSuccessorIds(resF), successorSide: 'A' },
+                { id: resSF2.leg2Id || resSF2.leg1Id, successorMatchId: getSuccessorIds(resF), successorSide: 'B' }
+            ];
+
+            for (const ref of matchRefs) {
+                await updateDoc(doc(db, `/tournaments/${tournament.id}/matches/${ref.id}`), {
+                    successorMatchId: ref.successorMatchId,
+                    successorSide: ref.successorSide
                 });
             }
-            if (groupB[0] && groupA[1]) {
-                await addDoc(collection(db, `/tournaments/${tournament.id}/matches`), {
-                    teamAId: groupB[0].id,
-                    teamBId: groupA[1].id,
-                    scoreA: 0, scoreB: 0, status: 'scheduled', tournamentId: tournament.id, group: 'Playoffs', createdAt: serverTimestamp()
-                });
-            }
+
+        } else if (count === 4) {
+            // Semi-finals
+            const resSF1 = await createMatchPair({
+                teamAId: advancingTeams[0].id,
+                teamBId: advancingTeams[1].id,
+                round: 'Semi-final'
+            });
+            const resSF2 = await createMatchPair({
+                teamAId: advancingTeams[2].id,
+                teamBId: advancingTeams[3].id,
+                round: 'Semi-final'
+            });
+
+            // Final
+            const resF = await createMatchPair({
+                round: 'Final',
+                placeholderA: `Winner SF1`,
+                placeholderB: `Winner SF2`
+            });
+
+            const sf1Decider = resSF1.leg2Id || resSF1.leg1Id;
+            const sf2Decider = resSF2.leg2Id || resSF2.leg1Id;
+            const finalSuccessorIds = resF.leg2Id ? `${resF.leg1Id},${resF.leg2Id}` : resF.leg1Id;
+
+            // Link Successors
+            await updateDoc(doc(db, `/tournaments/${tournament.id}/matches/${sf1Decider}`), {
+                successorMatchId: finalSuccessorIds, successorSide: 'A'
+            });
+            await updateDoc(doc(db, `/tournaments/${tournament.id}/matches/${sf2Decider}`), {
+                successorMatchId: finalSuccessorIds, successorSide: 'B'
+            });
+
+        } else if (count === 2) {
+            // Final
+            await createMatchPair({
+                teamAId: advancingTeams[0].id,
+                teamBId: advancingTeams[1].id,
+                round: 'Final'
+            });
         } else {
-            // Generic sequential pairing
+            // Fallback for odd numbers or large numbers
+            const roundName = count === 16 ? 'Round of 16' : 'Knockout';
             for (let i = 0; i < advancingTeams.length; i += 2) {
                 if (advancingTeams[i+1]) {
-                    await addDoc(collection(db, `/tournaments/${tournament.id}/matches`), {
+                    await createMatchPair({
                         teamAId: advancingTeams[i].id,
                         teamBId: advancingTeams[i+1].id,
-                        scoreA: 0, scoreB: 0, status: 'scheduled', tournamentId: tournament.id, group: 'Playoffs', createdAt: serverTimestamp()
+                        round: roundName
                     });
                 }
             }
         }
-        notify('Playoff fixtures generated!');
+        notify('Playoff bracket generated!');
     } catch (err) {
         onError(err);
         handleFirestoreError(err, OperationType.WRITE, 'matches');
     } finally {
         setIsGenerating(false);
+    }
+  };
+
+  const generateNextRound = async () => {
+    const playoffMatches = matches.filter(m => m.group === 'Playoffs');
+    if (playoffMatches.length === 0) return;
+    
+    // Find latest round
+    const rounds = ['Round of 16', 'Quarter-final', 'Semi-final', 'Final'];
+    const currentRound = [...rounds].reverse().find(r => playoffMatches.some(m => m.round === r)) || 'Knockout';
+    const currentRoundIndex = rounds.indexOf(currentRound);
+    if (currentRoundIndex === -1 || currentRoundIndex >= rounds.length - 1) return notify('Tournament already at Final stage!');
+    
+    const nextRoundName = rounds[currentRoundIndex + 1];
+    const currentRoundMatches = playoffMatches.filter(m => m.round === currentRound);
+    
+    if (!currentRoundMatches.every(m => m.status === 'finished')) {
+      return onError(`Please finish all ${currentRound} matches before generating the next round.`);
+    }
+
+    if (playoffMatches.some(m => m.round === nextRoundName)) {
+      return onError(`${nextRoundName} already generated!`);
+    }
+
+    const winners: string[] = [];
+    
+    if (tournament.homeAwayKnockout) {
+      // Group by tieId
+      const ties: Record<string, Match[]> = {};
+      currentRoundMatches.forEach(m => {
+        if (m.tieId) {
+          if (!ties[m.tieId]) ties[m.tieId] = [];
+          ties[m.tieId].push(m);
+        }
+      });
+
+      Object.values(ties).forEach(legs => {
+        const l1 = legs.find(m => m.leg === 1);
+        const l2 = legs.find(m => m.leg === 2);
+        if (l1 && l2) {
+          const aggA = l1.scoreA + l2.scoreB;
+          const aggB = l1.scoreB + l2.scoreA;
+          if (aggA > aggB) winners.push(l1.teamAId);
+          else if (aggB > aggA) winners.push(l1.teamBId);
+          else winners.push((l2.pensA || 0) > (l2.pensB || 0) ? l2.teamAId : l2.teamBId);
+        }
+      });
+    } else {
+      currentRoundMatches.forEach(m => {
+        if (m.scoreA > m.scoreB) winners.push(m.teamAId);
+        else if (m.scoreB > m.scoreA) winners.push(m.teamBId);
+        else winners.push((m.pensA || 0) > (m.pensB || 0) ? m.teamAId : m.teamBId);
+      });
+    }
+
+    if (winners.length < 2) return onError('Not enough winners to generate next round.');
+
+    setIsGenerating(true);
+    try {
+      for (let i = 0; i < winners.length; i += 2) {
+        if (winners[i+1]) {
+          const tieId = `tie-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          await addDoc(collection(db, `/tournaments/${tournament.id}/matches`), {
+            teamAId: winners[i],
+            teamBId: winners[i+1],
+            scoreA: 0, scoreB: 0, status: 'scheduled', tournamentId: tournament.id, group: 'Playoffs', round: nextRoundName, createdAt: serverTimestamp(),
+            ...(tournament.homeAwayKnockout ? { leg: 1, tieId } : {})
+          });
+          if (tournament.homeAwayKnockout) {
+            await addDoc(collection(db, `/tournaments/${tournament.id}/matches`), {
+              teamAId: winners[i+1],
+              teamBId: winners[i],
+              scoreA: 0, scoreB: 0, status: 'scheduled', tournamentId: tournament.id, group: 'Playoffs', round: nextRoundName, createdAt: serverTimestamp(),
+              leg: 2,
+              tieId
+            });
+          }
+        }
+      }
+      notify(`${nextRoundName} generated successfully!`);
+    } catch (err) {
+      onError(err);
+      handleFirestoreError(err, OperationType.WRITE, 'matches');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followingId, setFollowingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, `users/${user.uid}/following`), where('tournamentId', '==', tournament.id));
+    return onSnapshot(q, (s) => {
+      setIsFollowing(!s.empty);
+      setFollowingId(s.empty ? null : s.docs[0].id);
+    });
+  }, [user, tournament.id]);
+
+  const toggleFollow = async () => {
+    if (!user) return notify('Please sign in to follow');
+    try {
+      if (isFollowing && followingId) {
+        await deleteDoc(doc(db, `users/${user.uid}/following`, followingId));
+        notify('Unfollowed tournament');
+      } else {
+        await addDoc(collection(db, `users/${user.uid}/following`), {
+          tournamentId: tournament.id,
+          followedAt: serverTimestamp()
+        });
+        notify('Following tournament');
+      }
+    } catch (err) {
+      onError(err);
     }
   };
 
@@ -985,9 +1671,11 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
         tournament={tournament}
         match={selectedMatch} 
         teams={teams}
+        allPlayers={allPlayers}
         onBack={() => setSelectedMatch(null)}
         isCreator={isCreator}
         notify={notify}
+        matches={matches}
       />
     );
   }
@@ -1052,11 +1740,23 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
             <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">{tournament.type}</div>
           </div>
           <h1 className="text-4xl md:text-5xl font-black tracking-tighter leading-none">{tournament.name}</h1>
-          <p className="text-slate-500 font-medium max-w-2xl">{tournament.description}</p>
+          <div className="flex items-center gap-4">
+            <p className="text-slate-500 font-medium max-w-2xl">{tournament.description}</p>
+            <button 
+              onClick={toggleFollow}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all shadow-sm ${
+                isFollowing ? 'bg-amber-100 text-amber-600 border border-amber-200' : 'bg-white border border-slate-200 text-slate-400 hover:text-amber-500'
+              }`}
+            >
+              <Star className={`w-3.5 h-3.5 ${isFollowing ? 'fill-amber-500' : ''}`} />
+              {isFollowing ? 'Following' : 'Follow'}
+            </button>
+          </div>
         </div>
 
-        {isCreator && (
-          <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap items-end">
+          {isCreator && (
+            <>
             {matches.length === 0 && (
               <button 
                 onClick={generateAutoSchedule}
@@ -1075,24 +1775,131 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
                 <Trophy className="w-4 h-4" /> Start Playoffs
               </button>
             )}
-            <button 
-              onClick={() => setShowAddTeam(true)}
-              className="px-4 py-2 bg-white border border-slate-200 rounded-full text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition-colors shadow-sm"
-            >
-              <Users className="w-4 h-4" /> Add Team
-            </button>
-            <button 
-              onClick={() => setShowAddMatch(true)}
-              className="px-4 py-2 bg-emerald-500 text-white rounded-full text-sm font-bold flex items-center gap-2 hover:bg-emerald-600 transition-all shadow-lg"
-            >
-              <Calendar className="w-4 h-4" /> Schedule Match
-            </button>
-          </div>
+            {(() => {
+              const playoffMatches = matches.filter(m => m.group === 'Playoffs');
+              if (playoffMatches.length === 0) return null;
+              
+              const rounds = ['Round of 16', 'Quarter-final', 'Semi-final', 'Final'];
+              const currentRound = [...rounds].reverse().find(r => playoffMatches.some(m => m.round === r)) || 'Knockout';
+              const currentRoundIndex = rounds.indexOf(currentRound);
+              
+              if (currentRoundIndex === -1 || currentRoundIndex >= rounds.length - 1) return null;
+              
+              const nextRoundName = rounds[currentRoundIndex + 1];
+              const nextRoundExists = playoffMatches.some(m => m.round === nextRoundName);
+              
+              if (nextRoundExists) return null;
+
+              return (
+                <button 
+                  onClick={generateNextRound}
+                  disabled={isGenerating || !playoffMatches.filter(m => m.round === currentRound).every(m => m.status === 'finished')}
+                  className="px-4 py-2 bg-amber-50 text-amber-600 rounded-full text-sm font-bold flex items-center gap-2 hover:bg-amber-100 transition-all border border-amber-200 shadow-sm disabled:opacity-50"
+                >
+                  <ChevronRight className={`w-4 h-4 ${isGenerating ? 'animate-spin' : ''}`} /> Generate Next Round
+                </button>
+              );
+            })()}
+            {!allMatchesScheduled && (
+              <button 
+                onClick={() => setShowAddMatch(true)}
+                className="px-4 py-2 bg-emerald-500 text-white rounded-full text-sm font-bold flex items-center gap-2 hover:bg-emerald-600 transition-all shadow-lg"
+              >
+                <Calendar className="w-4 h-4" /> Schedule Match
+              </button>
+            )}
+          </>
         )}
       </div>
+    </div>
+
+    {/* Upcoming Match Card Section */}
+    {(() => {
+      const nextMatch = matches
+        .filter(m => m.status === 'scheduled')
+        .sort((a, b) => {
+          // Primary sort by kickoff time
+          const timeA = a.kickoff?.seconds || a.createdAt?.seconds || 0;
+          const timeB = b.kickoff?.seconds || b.createdAt?.seconds || 0;
+          if (timeA !== timeB) return timeA - timeB;
+          
+          // Secondary sort by round precedence
+          const roundOrder = ['Quarter-final', 'Semi-final', 'Final'];
+          const orderA = roundOrder.indexOf(a.round || '');
+          const orderB = roundOrder.indexOf(b.round || '');
+          return (orderA === -1 ? 99 : orderA) - (orderB === -1 ? 99 : orderB);
+        })[0];
+      
+      if (!nextMatch) return null;
+      
+      const teamA = teams.find(t => t.id === nextMatch.teamAId);
+      const teamB = teams.find(t => t.id === nextMatch.teamBId);
+      
+      const roundLabel = nextMatch.round === 'Semi-final' ? 'SEMI FINALS' : nextMatch.round;
+      
+      return (
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          onClick={() => setSelectedMatch(nextMatch)}
+          className="bg-white border border-slate-100 rounded-3xl p-6 flex flex-col md:flex-row items-center justify-between gap-6 group cursor-pointer hover:border-emerald-400 transition-all shadow-sm hover:shadow-xl relative overflow-hidden"
+        >
+          {/* Decorative background element */}
+          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full -mr-16 -mt-16 blur-3xl group-hover:bg-emerald-500/10 transition-all" />
+          
+          <div className="flex flex-col gap-1 w-full md:w-auto">
+            <span className="text-[10px] font-black text-emerald-600 uppercase tracking-[0.2em] flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              Upcoming Match
+            </span>
+            {nextMatch.round && <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{roundLabel}</span>}
+          </div>
+
+          <div className="flex items-center justify-center gap-8 md:gap-12 flex-1">
+            <div className="flex flex-col items-center gap-3">
+              {teamA?.logoURL ? (
+                <img src={teamA.logoURL} className="w-12 h-12 md:w-16 md:h-16 rounded-full border-2 border-white shadow-md bg-slate-50" />
+              ) : (
+                <div className="w-12 h-12 md:w-16 md:h-16 rounded-full bg-slate-50 flex items-center justify-center text-lg font-black text-slate-300 border-2 border-white shadow-md">{teamA?.name?.[0]}</div>
+              )}
+              <span className="text-sm md:text-lg font-black text-slate-900">{formatTeamName(teamA?.name || 'TBA')}</span>
+            </div>
+
+            <div className="flex flex-col items-center gap-2">
+              <div className="px-6 py-2 bg-slate-900 text-white rounded-2xl shadow-lg transform -rotate-2 group-hover:rotate-0 transition-transform">
+                <span className="text-lg md:text-2xl font-black italic">VS</span>
+              </div>
+              {nextMatch.kickoff && (
+                <div className="flex flex-col items-center">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{nextMatch.kickoff.toDate().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                  <span className="text-xs font-black text-emerald-500">{nextMatch.kickoff.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col items-center gap-3">
+              {teamB?.logoURL ? (
+                <img src={teamB.logoURL} className="w-12 h-12 md:w-16 md:h-16 rounded-full border-2 border-white shadow-md bg-slate-50" />
+              ) : (
+                <div className="w-12 h-12 md:w-16 md:h-16 rounded-full bg-slate-50 flex items-center justify-center text-lg font-black text-slate-300 border-2 border-white shadow-md">{teamB?.name?.[0]}</div>
+              )}
+              <span className="text-sm md:text-lg font-black text-slate-900">{formatTeamName(teamB?.name || 'TBA')}</span>
+            </div>
+          </div>
+
+          <div className="hidden md:flex items-center gap-2 text-slate-300 group-hover:text-emerald-500 transition-colors">
+            <span className="text-[10px] font-black uppercase tracking-widest">Match Centre</span>
+            <ChevronRight className="w-4 h-4" />
+          </div>
+        </motion.div>
+      );
+    })()}
 
       <div className="flex items-center gap-4 md:gap-8 border-b border-slate-200 overflow-x-auto scrollbar-hide no-scrollbar pt-2">
-        {(['matches', 'teams', 'standings', 'stats'] as const).map(tab => (
+        {(['matches', 'knockout', 'standings', 'teams', 'stats'] as const).filter(t => {
+          if (t === 'knockout') return tournament.type === 'league_playoff' || tournament.type === 'knockout';
+          return true;
+        }).map(tab => (
           <button 
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -1123,25 +1930,38 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
             ) : (
               Object.entries(
                 matches.reduce((acc, m) => {
-                  const group = m.group || 'Regular Season';
-                  if (!acc[group]) acc[group] = [];
-                  acc[group].push(m);
+                  let groupName = 'Upcoming';
+                  if (m.kickoff) {
+                    const date = m.kickoff.toDate();
+                    groupName = date.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+                  } else if (m.group === 'Playoffs' && m.round) {
+                    groupName = m.round;
+                    // Simplify names as requested
+                    if (groupName === 'Semi-final') groupName = 'SEMI FINALS';
+                    if (groupName === 'Final') groupName = 'Final';
+                  } else {
+                    groupName = m.group || 'Regular Season';
+                  }
+                  
+                  if (!acc[groupName]) acc[groupName] = [];
+                  acc[groupName].push(m);
                   return acc;
                 }, {} as { [key: string]: Match[] })
-              ).sort(([a], [b]) => a === 'Playoffs' ? 1 : b === 'Playoffs' ? -1 : a.localeCompare(b)).map(([group, groupMatches]) => {
-                const matchesList = groupMatches as Match[];
+              ).map(([group, groupMatches]) => {
+                const matchesList = (groupMatches as Match[]).sort((a, b) => {
+                  if (a.kickoff && b.kickoff) return a.kickoff.seconds - b.kickoff.seconds;
+                  return 0;
+                });
                 return (
                 <div key={group} className="space-y-4">
-                  {tournament.type === 'league_playoff' && (
-                    <div className="flex items-center gap-3 px-2">
-                       <div className="h-[2px] flex-1 bg-slate-100" />
-                       <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
-                        {group}
-                       </h3>
-                       <div className="h-[2px] flex-1 bg-slate-100" />
-                    </div>
-                  )}
-                    <div className="space-y-2">
+                  <div className="flex items-center gap-3 px-2">
+                      <div className="h-[2px] flex-1 bg-slate-100" />
+                      <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                        <Calendar className="w-3 h-3" /> {group}
+                      </h3>
+                      <div className="h-[2px] flex-1 bg-slate-100" />
+                  </div>
+                  <div className="space-y-2">
                       {matchesList.map(m => {
                         const teamA = teams.find(t => t.id === m.teamAId);
                         const teamB = teams.find(t => t.id === m.teamBId);
@@ -1149,16 +1969,6 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
                         const winnerA = isFinished && m.scoreA > m.scoreB;
                         const winnerB = isFinished && m.scoreB > m.scoreA;
                         
-                        const formatTeamName = (name: string) => {
-                          if (!name) return '';
-                          if (name.length <= 10) return name;
-                          const parts = name.split(' ');
-                          if (parts.length > 1) {
-                            return `${parts[0].charAt(0)}. ${parts.slice(1).join(' ')}`;
-                          }
-                          return name;
-                        };
-
                         return (
                           <div 
                             key={m.id} 
@@ -1166,23 +1976,40 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
                             className="bg-white px-3 md:px-4 py-4 rounded-2xl border border-slate-100 flex items-center group hover:border-emerald-400 transition-all shadow-sm hover:shadow-md cursor-pointer"
                           >
                             {/* Status Section */}
-                            <div className="w-8 md:w-10 text-center border-r border-slate-100 pr-1 mr-1 shrink-0 flex items-center justify-center">
-                              <span className={`text-[9px] md:text-[10px] font-black uppercase tracking-tighter ${
-                                isFinished ? 'text-slate-400' : m.status === 'live' ? 'text-emerald-500 animate-pulse' : 'text-slate-300'
-                              }`}>
-                                {isFinished ? 'FT' : m.status === 'live' ? 'Live' : m.status === 'scheduled' ? 'vs' : m.status}
-                              </span>
+                            <div className="w-12 md:w-16 text-center border-r border-slate-100 pr-1 mr-1 shrink-0 flex flex-col items-center justify-center">
+                              <div className="flex flex-col items-center justify-center">
+                                <span className={`text-[9px] md:text-[10px] font-black uppercase tracking-tighter ${
+                                  isFinished ? 'text-slate-400' : m.status === 'live' ? 'text-emerald-500 animate-pulse' : 'text-slate-300'
+                                }`}>
+                                  {isFinished ? 'FT' : (
+                                    <span className="flex items-center gap-1">
+                                      {m.status === 'live' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                                      {m.status === 'live' ? 'Live' : m.status === 'scheduled' ? 'vs' : m.status}
+                                    </span>
+                                  )}
+                                </span>
+                              </div>
+                              {m.status === 'scheduled' && m.kickoff && (
+                                <span className="text-[7px] md:text-[8px] font-black text-slate-400 mt-0.5 whitespace-nowrap">
+                                  {m.kickoff.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              )}
+                              {m.leg && (
+                                <span className="text-[8px] font-black bg-slate-100 text-slate-500 px-1 rounded mt-1">
+                                  L{m.leg}
+                                </span>
+                              )}
                             </div>
 
                             {/* Teams Grid */}
                             <div className="flex-1 flex items-center justify-between text-xs md:text-base min-w-0">
                               {/* Team A */}
                               <div className="flex-1 flex items-center justify-end gap-1 md:gap-3 pr-1 md:pr-2 min-w-0">
-                                <span className={`font-bold truncate transition-colors text-[10px] sm:text-sm md:text-base ${winnerA ? 'text-emerald-500' : 'text-slate-900'}`}>{formatTeamName(teamA?.name || '')}</span>
+                                <span className={`font-black truncate transition-colors text-xs sm:text-base md:text-lg ${winnerA ? 'text-emerald-500' : 'text-slate-900'}`}>{formatTeamName(teamA?.name || '')}</span>
                                 {teamA?.logoURL ? (
-                                  <img src={teamA.logoURL} className="w-4 h-4 md:w-6 md:h-6 object-cover rounded-full bg-slate-50 shrink-0" alt="" />
+                                  <img src={teamA.logoURL} className="w-5 h-5 md:w-8 md:h-8 object-cover rounded-full bg-slate-50 shrink-0" alt="" />
                                 ) : (
-                                  <div className="w-4 h-4 md:w-6 md:h-6 rounded-full bg-slate-50 flex items-center justify-center text-[7px] md:text-[10px] font-black text-slate-300 shrink-0 border border-slate-100">{teamA?.name?.charAt(0)}</div>
+                                  <div className="w-5 h-5 md:w-8 md:h-8 rounded-full bg-slate-50 flex items-center justify-center text-[7px] md:text-[10px] font-black text-slate-300 shrink-0 border border-slate-100">{teamA?.name?.charAt(0)}</div>
                                 )}
                               </div>
 
@@ -1202,11 +2029,11 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
                               {/* Team B */}
                               <div className="flex-1 flex items-center justify-start gap-1 md:gap-3 pl-1 md:pl-2 min-w-0">
                                 {teamB?.logoURL ? (
-                                  <img src={teamB.logoURL} className="w-4 h-4 md:w-6 md:h-6 object-cover rounded-full bg-slate-50 shrink-0" alt="" />
+                                  <img src={teamB.logoURL} className="w-5 h-5 md:w-8 md:h-8 object-cover rounded-full bg-slate-50 shrink-0" alt="" />
                                 ) : (
-                                  <div className="w-4 h-4 md:w-6 md:h-6 rounded-full bg-slate-50 flex items-center justify-center text-[7px] md:text-[10px] font-black text-slate-300 shrink-0 border border-slate-100">{teamB?.name?.charAt(0)}</div>
+                                  <div className="w-5 h-5 md:w-8 md:h-8 rounded-full bg-slate-50 flex items-center justify-center text-[7px] md:text-[10px] font-black text-slate-300 shrink-0 border border-slate-100">{teamB?.name?.charAt(0)}</div>
                                 )}
-                                <span className={`font-bold truncate transition-colors text-[10px] sm:text-sm md:text-base ${winnerB ? 'text-emerald-500' : 'text-slate-900'}`}>{formatTeamName(teamB?.name || '')}</span>
+                                <span className={`font-black truncate transition-colors text-xs sm:text-base md:text-lg ${winnerB ? 'text-emerald-500' : 'text-slate-900'}`}>{formatTeamName(teamB?.name || '')}</span>
                               </div>
                             </div>
                             
@@ -1229,45 +2056,65 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
             initial={{ opacity: 0, y: 10 }} 
             animate={{ opacity: 1, y: 0 }} 
             exit={{ opacity: 0, y: -10 }}
-            className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6"
+            className="space-y-6"
           >
-            {teams.length === 0 ? (
-              <div className="col-span-full py-20 text-center font-bold text-slate-300 uppercase tracking-widest">Join as the first team!</div>
-            ) : (
-              teams.map(t => (
-                <div 
-                  key={t.id} 
-                  className="relative group cursor-pointer"
+            {matches.length === 0 && (isCreator || (user && !teams.some(t => t.creatorId === user.uid))) && (
+              <div className="flex justify-end">
+                <button 
+                  onClick={() => setShowAddTeam(true)}
+                  className={`px-6 py-3 rounded-full text-sm font-black flex items-center gap-2 transition-all shadow-lg active:scale-95 ${
+                    isCreator 
+                      ? 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50' 
+                      : 'bg-emerald-500 text-white hover:bg-emerald-600'
+                  }`}
                 >
-                  {isCreator && (
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (window.confirm(`Delete ${t.name}?`)) {
-                          deleteDoc(doc(db, `tournaments/${tournament.id}/teams/${t.id}`));
-                        }
-                      }}
-                      className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10 shadow-lg"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  )}
-                  <div 
-                    onClick={() => setSelectedTeam(t)}
-                    className="aspect-square bg-white border border-slate-200 rounded-3xl p-6 flex flex-col items-center justify-center gap-4 text-center group-hover:border-emerald-200 transition-all shadow-sm h-full"
-                  >
-                    <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center border border-slate-100 group-hover:bg-emerald-50 transition-colors mb-2 overflow-hidden">
-                      {t.logoURL ? (
-                        <img src={t.logoURL} alt={t.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <Users className="w-8 h-8 text-slate-300 group-hover:text-emerald-500" />
-                      )}
-                    </div>
-                    <span className="font-black text-sm uppercase tracking-tight">{t.name}</span>
-                  </div>
-                </div>
-              ))
+                  <Users className="w-4 h-4" />
+                  {isCreator ? 'Add Team' : 'Register Squad'}
+                </button>
+              </div>
             )}
+
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
+              {teams.length === 0 ? (
+                <div className="col-span-full py-20 text-center font-bold text-slate-300 uppercase tracking-widest bg-white rounded-3xl border border-slate-100 italic">
+                  No teams joined yet
+                </div>
+              ) : (
+                teams.map(t => (
+                  <div 
+                    key={t.id} 
+                    className="relative group cursor-pointer"
+                  >
+                    {isCreator && matches.length === 0 && (
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm(`Delete ${t.name}?`)) {
+                            deleteDoc(doc(db, `tournaments/${tournament.id}/teams/${t.id}`));
+                          }
+                        }}
+                        className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10 shadow-lg"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                    <div 
+                      onClick={() => setSelectedTeam(t)}
+                      className="aspect-square bg-white border border-slate-200 rounded-3xl p-6 flex flex-col items-center justify-center gap-4 text-center group-hover:border-emerald-200 transition-all shadow-sm h-full"
+                    >
+                      <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center border border-slate-100 group-hover:bg-emerald-50 transition-colors mb-2 overflow-hidden">
+                        {t.logoURL ? (
+                          <img src={t.logoURL} alt={t.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <Users className="w-8 h-8 text-slate-300 group-hover:text-emerald-500" />
+                        )}
+                      </div>
+                      <span className="font-black text-sm uppercase tracking-tight">{formatTeamName(t.name)}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </motion.div>
         )}
 
@@ -1285,45 +2132,58 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
                   {group && <h3 className="text-xl font-black">{group}</h3>}
                   <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
                     <div className="overflow-x-auto scrollbar-hide">
-                      <table className="w-full text-left border-collapse">
+                      <table className="w-full text-left border-collapse table-fixed">
                         <thead>
                           <tr className="bg-slate-50 border-b border-slate-200">
-                            <th className="px-3 md:px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Pos</th>
-                            <th className="px-3 md:px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Team</th>
-                            <th className="px-2 md:px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">P</th>
-                            <th className="hidden sm:table-cell px-2 md:px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">W</th>
-                            <th className="hidden sm:table-cell px-2 md:px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">D</th>
-                            <th className="hidden sm:table-cell px-2 md:px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">L</th>
-                            <th className="px-2 md:px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">GD</th>
-                            <th className="px-3 md:px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">Pts</th>
+                  <th className="w-8 px-1 py-4 text-[9px] font-black uppercase tracking-widest text-slate-400 pl-4">#</th>
+                  <th className="px-1 py-4 text-[9px] font-black uppercase tracking-widest text-slate-400">TM</th>
+                  <th className="w-6 px-0.5 py-4 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">MP</th>
+                  <th className="w-6 px-0.5 py-4 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">W</th>
+                  <th className="w-6 px-0.5 py-4 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">D</th>
+                  <th className="w-6 px-0.5 py-4 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">L</th>
+                  <th className="w-7 px-0.5 py-4 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">GF</th>
+                  <th className="w-7 px-0.5 py-4 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">GA</th>
+                  <th className="w-7 px-0.5 py-4 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">GD</th>
+                  <th className="w-8 px-1 py-4 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">PTS</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {groupStandings.map((s, idx) => (
-                            <tr key={s.id} className="hover:bg-slate-50 transition-colors">
-                              <td className="px-3 md:px-6 py-5 font-black text-slate-400">
-                                <span className={idx === 0 ? 'text-emerald-500 font-black' : ''}>{idx + 1}</span>
+                          {groupStandings.map((s, idx) => {
+                            const isQualifying = tournament.type === 'league_playoff' && idx < (tournament.advancingPerGroup || 2);
+                            return (
+                            <tr key={s.id} className="hover:bg-slate-50 transition-colors group relative">
+                              <td className="w-8 px-1 py-4 font-black text-slate-400 pl-4 relative">
+                                {isQualifying && (
+                                  <div className="absolute left-0 top-2 bottom-2 w-1.5 bg-emerald-500 rounded-r-full" />
+                                )}
+                                <span className={idx === 0 ? 'text-emerald-500 font-black text-[9px]' : 'text-[9px]'}>{idx + 1}</span>
                               </td>
-                              <td className="px-3 md:px-6 py-5 font-black min-w-[120px]">
-                                <div className="flex items-center gap-2 md:gap-3">
+                              <td 
+                                className="px-1 py-4 font-black cursor-pointer hover:text-emerald-500 transition-colors overflow-hidden"
+                                onClick={() => setSelectedTeam(s)}
+                              >
+                                <div className="flex items-center gap-1 md:gap-3">
                                   {s.logoURL ? (
-                                    <img src={s.logoURL} className="w-5 h-5 md:w-6 md:h-6 object-cover rounded-full" alt="" />
+                                    <img src={s.logoURL} className="w-4 h-4 md:w-8 md:h-8 object-cover rounded-full bg-slate-50 flex-shrink-0" alt="" />
                                   ) : (
-                                    <div className="w-5 h-5 md:w-6 md:h-6 rounded-full bg-slate-100 flex items-center justify-center text-[7px] md:text-[8px] border border-slate-200 text-slate-400 shrink-0">{s.name.charAt(0)}</div>
+                                    <div className="w-4 h-4 md:w-8 md:h-8 rounded-full bg-slate-50 flex items-center justify-center text-[7px] md:text-[9px] border border-slate-200 text-slate-400 shrink-0">{s.name.charAt(0)}</div>
                                   )}
-                                  <span className={`truncate ${idx === 0 ? 'text-emerald-600' : ''}`}>{s.name}</span>
+                                  <span className={`truncate text-[9px] md:text-base ${idx === 0 ? 'text-emerald-600' : ''}`}>{formatTeamName(s.name)}</span>
                                 </div>
                               </td>
-                              <td className="px-2 md:px-6 py-5 text-center font-bold">{s.played}</td>
-                              <td className="hidden sm:table-cell px-2 md:px-6 py-5 text-center font-medium">{s.won}</td>
-                              <td className="hidden sm:table-cell px-2 md:px-6 py-5 text-center font-medium">{s.drawn}</td>
-                              <td className="hidden sm:table-cell px-2 md:px-6 py-5 text-center font-medium">{s.lost}</td>
-                              <td className="px-2 md:px-6 py-5 text-center font-bold text-emerald-500 text-xs md:text-base">{s.gd > 0 ? `+${s.gd}` : s.gd}</td>
-                              <td className="px-3 md:px-6 py-5 text-center">
-                                <span className="bg-emerald-500 text-white px-2 md:px-3 py-1 rounded-lg font-black text-xs md:text-sm">{s.points}</span>
+                              <td className="w-6 px-0.5 py-4 text-center font-medium text-[9px] md:text-sm">{s.played}</td>
+                              <td className="w-6 px-0.5 py-4 text-center font-medium text-[9px] md:text-sm text-slate-600">{s.won}</td>
+                              <td className="w-6 px-0.5 py-4 text-center font-medium text-[9px] md:text-sm text-slate-600">{s.drawn}</td>
+                              <td className="w-6 px-0.5 py-4 text-center font-medium text-[9px] md:text-sm text-slate-600">{s.lost}</td>
+                              <td className="w-7 px-0.5 py-4 text-center font-medium text-[8px] text-slate-400">{s.gf}</td>
+                              <td className="w-7 px-0.5 py-4 text-center font-medium text-[8px] text-slate-400">{s.ga}</td>
+                              <td className="w-7 px-0.5 py-4 text-center font-medium text-emerald-500 text-[9px] md:text-sm">{s.gd > 0 ? `+${s.gd}` : s.gd}</td>
+                              <td className="w-8 px-1 py-4 text-center">
+                                <span className="bg-emerald-500/10 text-emerald-600 px-1 py-1 rounded-sm font-medium text-[9px] md:text-sm">{s.points}</span>
                               </td>
                             </tr>
-                          ))}
+                          );
+                        })}
                         </tbody>
                       </table>
                     </div>
@@ -1357,10 +2217,10 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {Array.from(new Set(events.filter(e => e.type === 'goal' && e.goalType !== 'own_goal').map(e => e.playerId)))
+                      {Array.from(new Set(events.filter(e => e.type === 'goal' && e.goalType !== 'own_goal' && !e.isPenaltyShootout).map(e => e.playerId)))
                         .map((pid) => {
                           const player = allPlayers.find(p => p.id === pid);
-                          const goals = events.filter(e => e.type === 'goal' && e.goalType !== 'own_goal' && e.playerId === pid).length;
+                          const goals = events.filter(e => e.type === 'goal' && e.goalType !== 'own_goal' && !e.isPenaltyShootout && e.playerId === pid).length;
                           return { pid, name: player?.name || 'Unknown', goals };
                         })
                         .filter(p => p.goals > 0 && p.name !== 'Unknown')
@@ -1368,14 +2228,14 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
                         .slice(0, 10)
                         .map((p, idx) => (
                           <tr key={p.pid} className="hover:bg-slate-50 transition-colors">
-                            <td className="px-6 py-5 font-black text-slate-400">{idx + 1}</td>
-                            <td className="px-6 py-5 font-black text-slate-700">{p.name.split(' (')[0].split(' #')[0]}</td>
+                            <td className="px-6 py-5 font-medium text-slate-400">{idx + 1}</td>
+                            <td className="px-6 py-5 font-medium text-slate-700">{p.name.split(' (')[0].split(' #')[0]}</td>
                             <td className="px-6 py-5 text-center">
-                              <span className="bg-emerald-500 text-white px-3 py-1 rounded-lg font-black text-sm">{p.goals}</span>
+                              <span className="text-emerald-500 font-medium text-lg">{p.goals}</span>
                             </td>
                           </tr>
                         ))}
-                      {events.filter(e => e.type === 'goal' && e.goalType !== 'own_goal').length === 0 && (
+                      {events.filter(e => e.type === 'goal' && e.goalType !== 'own_goal' && !e.isPenaltyShootout).length === 0 && (
                         <tr><td colSpan={3} className="px-6 py-20 text-center text-slate-300 font-bold italic">No goals yet</td></tr>
                       )}
                     </tbody>
@@ -1403,10 +2263,10 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {Array.from(new Set(events.filter(e => e.type === 'goal' && e.assistantId).map(e => e.assistantId!)))
+                      {Array.from(new Set(events.filter(e => e.type === 'goal' && e.assistantId && !e.isPenaltyShootout).map(e => e.assistantId!)))
                         .map((aid) => {
                           const player = allPlayers.find(p => p.id === aid);
-                          const assists = events.filter(e => e.type === 'goal' && e.assistantId === aid).length;
+                          const assists = events.filter(e => e.type === 'goal' && e.assistantId === aid && !e.isPenaltyShootout).length;
                           return { aid, name: player?.name || 'Unknown', assists };
                         })
                         .filter(p => p.assists > 0 && p.name !== 'Unknown')
@@ -1414,15 +2274,63 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
                         .slice(0, 10)
                         .map((p, idx) => (
                           <tr key={p.aid} className="hover:bg-slate-50 transition-colors">
-                            <td className="px-6 py-5 font-black text-slate-400">{idx + 1}</td>
-                            <td className="px-6 py-5 font-black text-slate-700">{p.name.split(' (')[0].split(' #')[0]}</td>
+                            <td className="px-6 py-5 font-medium text-slate-400">{idx + 1}</td>
+                            <td className="px-6 py-5 font-medium text-slate-700">{p.name.split(' (')[0].split(' #')[0]}</td>
                             <td className="px-6 py-5 text-center">
-                              <span className="bg-blue-500 text-white px-3 py-1 rounded-lg font-black text-sm">{p.assists}</span>
+                              <span className="text-blue-500 font-medium text-lg">{p.assists}</span>
                             </td>
                           </tr>
                         ))}
                       {events.filter(e => e.type === 'goal' && e.assistantId).length === 0 && (
                         <tr><td colSpan={3} className="px-6 py-20 text-center text-slate-300 font-bold italic">No assists yet</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+
+            {/* Man of the Match Leaderboard */}
+            <section className="space-y-4">
+              <div className="flex items-center gap-3 px-2">
+                <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center shadow-lg shadow-amber-500/20">
+                  <Star className="w-5 h-5 text-white fill-white" />
+                </div>
+                <h3 className="text-xl font-black uppercase tracking-tighter">Most MVPs</h3>
+              </div>
+              <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
+                <div className="overflow-x-auto scrollbar-hide">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-slate-50 border-b border-slate-200">
+                      <tr>
+                        <th className="w-12 px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Rank</th>
+                        <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Player</th>
+                        <th className="w-20 px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">AW</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {Array.from(new Set(matches.filter(m => m.manOfTheMatchId).map(m => m.manOfTheMatchId!)))
+                        .map((pid) => {
+                          const player = allPlayers.find(p => p.id === pid);
+                          const awards = matches.filter(m => m.manOfTheMatchId === pid).length;
+                          return { pid, name: player?.name || 'Unknown', awards };
+                        })
+                        .filter(p => p.awards > 0 && p.name !== 'Unknown')
+                        .sort((a, b) => b.awards - a.awards)
+                        .slice(0, 10)
+                        .map((p, idx) => (
+                          <tr key={p.pid} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-4 py-4 font-medium text-slate-400 text-xs">{idx + 1}</td>
+                            <td className="px-4 py-4">
+                              <span className="font-medium text-slate-700 text-xs md:text-sm truncate block max-w-[150px]">{p.name.split(' (')[0].split(' #')[0]}</span>
+                            </td>
+                            <td className="px-4 py-4 text-center">
+                              <span className="text-amber-500 font-medium text-sm">{p.awards}</span>
+                            </td>
+                          </tr>
+                        ))}
+                      {matches.filter(m => m.manOfTheMatchId).length === 0 && (
+                        <tr><td colSpan={3} className="px-6 py-20 text-center text-slate-300 font-bold italic">No awards yet</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -1507,6 +2415,186 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
             </div>
           </motion.div>
         )}
+
+        {activeTab === 'knockout' && (
+          <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            className="py-12 min-h-screen text-slate-900"
+          >
+            <div className="max-w-screen-xl mx-auto px-4 overflow-x-auto no-scrollbar pb-20">
+              <div className="flex flex-col items-center gap-16 min-w-max">
+                
+                {/* Header */}
+                <div className="text-center space-y-2">
+                  <Trophy className="w-12 h-12 text-amber-500 mx-auto drop-shadow-lg" />
+                  <h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Knockout Stage</h2>
+                  <div className="h-1 w-24 bg-amber-500 mx-auto rounded-full" />
+                </div>
+
+                 <div className="flex flex-col lg:grid lg:grid-cols-[1fr_auto_1fr] gap-12 lg:gap-12 items-center w-full">
+                  {/* Left Bracket */}
+                  <div className="space-y-12 flex flex-col items-center lg:items-end w-full lg:w-auto">
+                    {/* Quarter-finals Left */}
+                    {tiesByRound['Quarter-final']?.length > 0 && (
+                      <div className="flex flex-col gap-6 lg:gap-8 w-full lg:w-64">
+                         <h3 className="lg:hidden text-[10px] font-black uppercase text-slate-400 text-center tracking-[0.3em] mb-4">Quarter-finals</h3>
+                        {tiesByRound['Quarter-final'].slice(0, 2).map((tie, idx) => (
+                          <div key={tie[0].id} className="space-y-4">
+                            {tie.map(m => <BracketMatch key={m.id} match={m} teams={teams} position="left" onSelect={setSelectedMatch} compact={tournament.homeAwayKnockout} />)}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Semi-final Left */}
+                    {tiesByRound['Semi-final']?.length > 0 && (
+                      <div className="flex flex-col justify-center min-h-0 lg:min-h-[300px] w-full lg:w-64">
+                        <h3 className="lg:hidden text-[10px] font-black uppercase text-slate-400 text-center tracking-[0.3em] mt-8 mb-4">SEMI FINALS</h3>
+                        {tiesByRound['Semi-final'].slice(0, 1).map(tie => (
+                          <div key={tie[0].id} className="space-y-4">
+                            {tie.map(m => <BracketMatch key={m.id} match={m} teams={teams} position="left" onSelect={setSelectedMatch} compact={tournament.homeAwayKnockout} />)}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                   {/* Final Column (Center) */}
+                  <div className="flex flex-col items-center gap-8 py-12 order-first lg:order-none w-full lg:w-auto">
+                    {tiesByRound['Final']?.map(tie => (
+                      <div key={tie[0].id} className="space-y-6">
+                        {tie.map(m => (
+                          <div key={m.id} className="relative group">
+                            <div className="absolute -inset-4 bg-amber-500/5 blur-2xl rounded-full opacity-30 group-hover:opacity-60 transition-opacity" />
+                            <div 
+                              onClick={() => setSelectedMatch(m)}
+                              className={`${tournament.homeAwayKnockout ? 'w-80 md:w-96 p-6 rounded-[32px]' : 'w-80 md:w-96 p-8 rounded-[40px]'} bg-white border-2 border-amber-500 shadow-xl relative z-10 cursor-pointer hover:scale-[1.02] transition-all`}
+                            >
+                              <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-amber-500 text-white px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg">Final {m.leg ? `- Leg ${m.leg}` : ''}</div>
+                              <div className="flex items-center justify-between gap-4">
+                                <div className="flex flex-col items-center gap-3 flex-1">
+                                  <TeamSlot id={m.teamAId} teams={teams} />
+                                  <div className="flex flex-col items-center">
+                                    <span className="text-3xl font-black text-slate-900 tabular-nums">{m.status === 'scheduled' ? '-' : m.scoreA}</span>
+                                    {m.pensA !== undefined && (
+                                      <span className="text-[10px] font-black text-amber-500 mt-[-4px]">({m.pensA})</span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex flex-col items-center gap-2">
+                                  <div className="text-[10px] font-black text-slate-300 uppercase tracking-[.3em]">VS</div>
+                                  <Trophy className="w-8 h-8 text-amber-500" />
+                                </div>
+                                <div className="flex flex-col items-center gap-3 flex-1">
+                                  <TeamSlot id={m.teamBId} teams={teams} />
+                                  <div className="flex flex-col items-center">
+                                    <span className="text-3xl font-black text-slate-900 tabular-nums">{m.status === 'scheduled' ? '-' : m.scoreB}</span>
+                                    {m.pensB !== undefined && (
+                                      <span className="text-[10px] font-black text-amber-500 mt-[-4px]">({m.pensB})</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                    
+                    {/* Champion Decoration */}
+                    {matches.find(m => m.round === 'Final' && m.status === 'finished') && (
+                      <div className="text-center space-y-4 pt-8 animate-bounce">
+                        <div className="w-24 h-24 bg-gradient-to-tr from-amber-500 to-amber-300 rounded-full flex items-center justify-center mx-auto shadow-xl shadow-amber-500/20">
+                          <Trophy className="w-12 h-12 text-white" />
+                        </div>
+                        <div className="space-y-1">
+                          <h3 className="text-2xl font-black uppercase tracking-tighter text-amber-500">
+                            {(() => {
+                              const fm = matches.find(m => m.round === 'Final');
+                              if (!fm) return '';
+                              const isAWinner = fm.status === 'finished' && (fm.scoreA > fm.scoreB || (fm.scoreA === fm.scoreB && (fm.pensA || 0) > (fm.pensB || 0)));
+                              const winnerId = isAWinner ? fm.teamAId : fm.teamBId;
+                              return teams.find(t => t.id === winnerId)?.name || 'Champion';
+                            })()}
+                          </h3>
+                          <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Tournament Winner</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                   {/* Right Bracket */}
+                  <div className="space-y-12 flex flex-col items-center lg:items-start w-full lg:w-auto">
+                    {/* Quarter-finals Right */}
+                    {tiesByRound['Quarter-final']?.length > 0 && (
+                      <div className="flex flex-col gap-6 lg:gap-8 w-full lg:w-64 order-last lg:order-none">
+                        <h3 className="lg:hidden text-[10px] font-black uppercase text-slate-400 text-center tracking-[0.3em] mb-4">Quarter-finals</h3>
+                        {tiesByRound['Quarter-final'].slice(2, 4).map((tie, idx) => (
+                          <div key={tie[0].id} className="space-y-4">
+                            {tie.map(m => <BracketMatch key={m.id} match={m} teams={teams} position="right" onSelect={setSelectedMatch} compact={tournament.homeAwayKnockout} />)}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Semi-final Right */}
+                    {tiesByRound['Semi-final']?.length > 0 && (
+                      <div className="flex flex-col justify-center min-h-0 lg:min-h-[300px] w-full lg:w-64">
+                         <h3 className="lg:hidden text-[10px] font-black uppercase text-slate-400 text-center tracking-[0.3em] mt-8 mb-4">SEMI FINALS</h3>
+                        {tiesByRound['Semi-final'].slice(1, 2).map(tie => (
+                          <div key={tie[0].id} className="space-y-4">
+                            {tie.map(m => <BracketMatch key={m.id} match={m} teams={teams} position="right" onSelect={setSelectedMatch} compact={tournament.homeAwayKnockout} />)}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Vertical fallback for smaller brackets/initial state */}
+                {!matches.some(m => m.round === 'Quarter-final') && matches.some(m => m.group === 'Playoffs') && (
+                  <div className="flex flex-col gap-12 w-full max-w-lg">
+                    {['Semi-final', 'Final'].filter(r => matches.some(m => m.round === r)).map(round => (
+                      <div key={round} className="space-y-6">
+                        <h3 className="text-center text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">
+                          {round === 'Semi-final' ? 'SEMI FINALS' : round + 's'}
+                        </h3>
+                        <div className="flex flex-col gap-4">
+                          {matches.filter(m => m.round === round).map(m => (
+                            <div 
+                              key={m.id} 
+                              onClick={() => setSelectedMatch(m)}
+                              className="bg-white border border-slate-200 rounded-3xl p-6 cursor-pointer hover:border-emerald-500/50 transition-all flex items-center justify-between shadow-sm"
+                            >
+                              <div className="flex items-center gap-4">
+                                <TeamSlot id={m.teamAId} teams={teams} small />
+                                <span className="font-black text-xs md:text-sm text-slate-900">{teams.find(t => t.id === m.teamAId)?.name.substring(0, 3).toUpperCase()}</span>
+                              </div>
+                              <div className="flex items-center gap-4 px-6 border-x border-slate-100">
+                                <div className="flex flex-col items-center">
+                                  <span className="text-xl font-black tabular-nums text-slate-900">{m.status === 'scheduled' ? '-' : m.scoreA}</span>
+                                  {m.pensA !== undefined && <span className="text-[10px] font-black text-amber-500">({m.pensA})</span>}
+                                </div>
+                                <span className="text-xl font-black tabular-nums text-slate-200">:</span>
+                                <div className="flex flex-col items-center">
+                                  <span className="text-xl font-black tabular-nums text-slate-900">{m.status === 'scheduled' ? '-' : m.scoreB}</span>
+                                  {m.pensB !== undefined && <span className="text-[10px] font-black text-amber-500">({m.pensB})</span>}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <span className="font-black text-xs md:text-sm text-slate-900">{teams.find(t => t.id === m.teamBId)?.name.substring(0, 3).toUpperCase()}</span>
+                                <TeamSlot id={m.teamBId} teams={teams} small />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
       </AnimatePresence>
 
       <AnimatePresence>
@@ -1530,7 +2618,6 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
                 const name = nameInput.value.trim();
                 const fileInput = form.elements.namedItem('team-logo') as HTMLInputElement;
                 
-                // Duplicate check
                 if (teams.some(t => t.name.toLowerCase() === name.toLowerCase())) {
                   notify(`A team named "${name}" is already registered in this tournament.`);
                   return;
@@ -1550,7 +2637,7 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
                     name, 
                     logoURL,
                     tournamentId: tournament.id,
-                    creatorId: user.uid,
+                    creatorId: user?.uid,
                     createdAt: serverTimestamp()
                   });
                   setShowAddTeam(false);
@@ -1605,83 +2692,27 @@ function TournamentView({ tournament, user, onBack, onError, notify }: { tournam
                   <option value="">Select Team A</option>
                   {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
-                <div className="text-center font-bold text-slate-300">VS</div>
                 <select name="teamB" required className="w-full bg-slate-50 px-5 py-4 rounded-2xl border border-slate-200">
                   <option value="">Select Team B</option>
                   {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
-                <button type="submit" className="w-full bg-emerald-500 text-white font-bold py-4 rounded-2xl mt-4">Create Fixture</button>
-              </form>
-            </motion.div>
-          </div>
-        )}
-
-        {editingMatch && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              onClick={() => setEditingMatch(null)}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" 
-            />
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
-              className="relative bg-white w-full max-w-sm rounded-3xl p-8 shadow-2xl"
-            >
-              <button onClick={() => setEditingMatch(null)} className="absolute right-6 top-6 p-2 text-slate-300 hover:text-slate-600 transition-colors"><X className="w-5 h-5" /></button>
-              <h2 className="text-2xl font-black tracking-tight mb-6">Edit Match</h2>
-              <form onSubmit={async (e) => {
-                e.preventDefault();
-                const formData = new FormData(e.currentTarget);
-                const scoreA = parseInt(formData.get('scoreA') as string);
-                const scoreB = parseInt(formData.get('scoreB') as string);
-                const status = formData.get('status') as Match['status'];
-                
-                try {
-                  const matchRef = doc(db, `tournaments/${tournament.id}/matches/${editingMatch.id}`);
-                  await updateDoc(matchRef, { scoreA, scoreB, status });
-                  setEditingMatch(null);
-                  notify('Match updated successfully!');
-                } catch (err) { handleFirestoreError(err, OperationType.WRITE, `tournaments/${tournament.id}/matches/${editingMatch.id}`); }
-              }} className="space-y-6">
-                <div className="flex justify-between items-center bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                  <div className="flex flex-col items-center flex-1">
-                    <span className="text-[9px] font-black uppercase text-slate-400 mb-2 truncate max-w-[80px]">
-                      {teams.find(t => t.id === editingMatch.teamAId)?.name}
-                    </span>
-                    <input type="number" name="scoreA" defaultValue={editingMatch.scoreA} className="w-16 h-16 text-center text-3xl font-black rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-emerald-500" />
-                  </div>
-                  <div className="px-4 font-black text-slate-300">:</div>
-                  <div className="flex flex-col items-center flex-1">
-                     <span className="text-[9px] font-black uppercase text-slate-400 mb-2 truncate max-w-[80px]">
-                      {teams.find(t => t.id === editingMatch.teamBId)?.name}
-                    </span>
-                    <input type="number" name="scoreB" defaultValue={editingMatch.scoreB} className="w-16 h-16 text-center text-3xl font-black rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-emerald-500" />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Match Status</label>
-                  <select name="status" defaultValue={editingMatch.status} className="w-full bg-slate-50 px-5 py-4 rounded-2xl border border-slate-200 font-bold outline-none">
-                    <option value="scheduled">Scheduled</option>
-                    <option value="live">Live</option>
-                    <option value="finished">Finished</option>
-                  </select>
-                </div>
-
-                <div className="flex gap-3">
-                   <button type="button" onClick={() => setEditingMatch(null)} className="flex-1 bg-slate-100 text-slate-600 font-bold py-4 rounded-2xl">Cancel</button>
-                   <button type="submit" className="flex-[2] bg-emerald-500 text-white font-bold py-4 rounded-2xl shadow-lg hover:bg-emerald-600 transition-all">Update Match</button>
-                </div>
+                <button type="submit" className="w-full bg-emerald-500 text-white font-bold py-5 rounded-2xl shadow-lg hover:bg-emerald-600 transition-all active:scale-95">Create Match</button>
               </form>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
+      <style>{`
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      `}</style>
     </motion.div>
   );
 }
 
-function MatchTimer({ match, isCreator, tournament }: { match: Match, isCreator: boolean, tournament: Tournament }) {
+
+function MatchTimer({ match, isCreator, tournament, onAddMilestone, nextMilestone }: { match: Match, isCreator: boolean, tournament: Tournament, onAddMilestone?: (type: 'half_time' | 'full_time' | 'aet' | 'end') => void, nextMilestone: 'half_time' | 'full_time' | 'aet' | 'end' }) {
   const [elapsed, setElapsed] = useState(0);
   
   useEffect(() => {
@@ -1744,41 +2775,59 @@ function MatchTimer({ match, isCreator, tournament }: { match: Match, isCreator:
   };
 
   return (
-    <div className="flex flex-col items-center gap-3">
-      <div className="bg-white/10 px-8 py-3 rounded-3xl border border-white/10 flex flex-col items-center shadow-xl backdrop-blur-md">
-         <span className="text-[9px] font-black uppercase tracking-[0.4em] text-white/30 mb-1">Match Time</span>
-         <span className="text-5xl font-black tabular-nums font-mono text-emerald-400 tracking-tighter">{formatTime(elapsed)}</span>
+    <div className="flex items-center gap-4 bg-slate-900/95 text-white p-3 pr-4 rounded-[32px] border border-white/10 shadow-2xl backdrop-blur-xl ring-4 ring-black/5">
+      <div className="flex flex-col items-center px-4 py-1 min-w-[120px] border-r border-white/5">
+         <span className="text-[8px] font-black uppercase tracking-[0.4em] text-white/30 mb-0.5">Match Clock</span>
+         <span className="text-4xl font-black tabular-nums font-mono text-emerald-400 tracking-tighter leading-none">{formatTime(elapsed)}</span>
       </div>
+      
       {isCreator && match.status !== 'finished' && (
-        <div className="flex gap-2">
+        <div className="flex flex-col items-center justify-center gap-1.5 min-w-[100px]">
            <button 
              onClick={toggleTimer}
-             className={`p-3 rounded-2xl border transition-all shadow-lg active:scale-95 ${match.isTimerRunning ? 'bg-amber-500/10 border-amber-500/30 text-amber-500' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'}`}
+             className={`w-full h-8 px-4 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2 font-black text-[9px] uppercase tracking-widest ${match.isTimerRunning ? 'bg-amber-500 text-white border-amber-400 shadow-[0_4px_12px_rgba(245,158,11,0.3)]' : 'bg-emerald-500 text-white border-emerald-400 shadow-[0_4px_12px_rgba(16,185,129,0.3)]'}`}
            >
-             {match.isTimerRunning ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current" />}
+             {match.isTimerRunning ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
+             {match.isTimerRunning ? 'Pause' : (elapsed === 0 ? 'Start' : 'Resume')}
            </button>
-           <button 
-             onClick={resetTimer}
-             className="p-3 rounded-2xl bg-white/5 border border-white/10 text-white/40 hover:text-white transition-all hover:bg-white/10 active:scale-95"
-             title="Reset Clock"
-           >
-             <RotateCcw className="w-5 h-5" />
-           </button>
+           
+           <div className="flex items-center gap-1.5 w-full">
+             <button 
+               onClick={resetTimer}
+               className="flex-1 h-8 flex items-center justify-center rounded-xl bg-white/5 border border-white/5 text-white/40 hover:text-white transition-all hover:bg-white/10 active:scale-95 overflow-hidden"
+               title="Reset Clock"
+             >
+               <RotateCcw className="w-3.5 h-3.5" />
+             </button>
+             {onAddMilestone && (
+               <button 
+                  onClick={() => onAddMilestone(nextMilestone)}
+                  className="flex-1 h-8 rounded-xl bg-white/5 border border-white/5 text-white/60 hover:text-white transition-all font-black text-[9px] uppercase tracking-widest hover:bg-white/10 active:scale-95 flex items-center justify-center"
+               >
+                 {nextMilestone === 'half_time' ? 'HT' : 
+                  nextMilestone === 'full_time' ? 'FT' : 
+                  nextMilestone === 'aet' ? 'AET' : 'END'}
+               </button>
+             )}
+           </div>
         </div>
       )}
     </div>
   );
 }
 
-function MatchScoringView({ tournament, match, teams, onBack, isCreator, notify }: { 
+function MatchScoringView({ tournament, match, teams, allPlayers, onBack, isCreator, notify, matches }: { 
   tournament: Tournament, 
   match: Match, 
   teams: Team[], 
+  allPlayers: Player[],
   onBack: () => void,
   isCreator: boolean,
-  notify: (msg: string) => void 
+  notify: (msg: string) => void,
+  matches: Match[]
 }) {
   const [liveMatch, setLiveMatch] = useState<Match>(match);
+  const [isPenaltyShootoutMode, setIsPenaltyShootoutMode] = useState(false);
   const [playersA, setPlayersA] = useState<Player[]>([]);
   const [playersB, setPlayersB] = useState<Player[]>([]);
   const [events, setEvents] = useState<MatchEvent[]>([]);
@@ -1848,7 +2897,7 @@ function MatchScoringView({ tournament, match, teams, onBack, isCreator, notify 
     return `${mins}'`;
   };
 
-  const addEvent = async (playerId: string, type: MatchEventType, teamId: string, metadata?: { assistantId?: string, goalType?: GoalType }) => {
+  const addEvent = async (playerId: string, type: MatchEventType, teamId: string, metadata?: { assistantId?: string, goalType?: GoalType, isPenaltyShootout?: boolean }) => {
     if (!isCreator) return;
     try {
       const matchRef = doc(db, `tournaments/${tournament.id}/matches/${match.id}`);
@@ -1858,6 +2907,7 @@ function MatchScoringView({ tournament, match, teams, onBack, isCreator, notify 
       const assistantRecord = metadata?.assistantId ? (isTeamA ? playersA : playersB).find(p => p.id === metadata.assistantId) : null;
 
       const matchTime = getMatchTime();
+      const isPenaltyShootout = metadata?.isPenaltyShootout || false;
 
       await addDoc(collection(db, `tournaments/${tournament.id}/matches/${match.id}/events`), {
         matchId: match.id,
@@ -1865,40 +2915,32 @@ function MatchScoringView({ tournament, match, teams, onBack, isCreator, notify 
         type,
         playerId,
         userId: playerRecord?.userId || null,
-        assistantId: (metadata?.goalType === 'own_goal') ? null : (metadata?.assistantId || null),
-        assistantUserId: (metadata?.goalType === 'own_goal') ? null : (assistantRecord?.userId || null),
+        assistantId: (metadata?.goalType === 'own_goal' || isPenaltyShootout) ? null : (metadata?.assistantId || null),
+        assistantUserId: (metadata?.goalType === 'own_goal' || isPenaltyShootout) ? null : (assistantRecord?.userId || null),
         goalType: metadata?.goalType || (type === 'goal' ? 'open_goal' : null),
         teamId,
         minute: 0, 
-        timestamp: matchTime,
-        createdAt: serverTimestamp()
+        timestamp: isPenaltyShootout ? 'Pens' : matchTime,
+        createdAt: serverTimestamp(),
+        isPenaltyShootout
       });
-
-      if (type === 'yellow_card') {
-        const yellowCount = events.filter(e => e.playerId === playerId && e.type === 'yellow_card').length;
-        if (yellowCount >= 1) { 
-          await addDoc(collection(db, `tournaments/${tournament.id}/matches/${match.id}/events`), {
-            matchId: match.id,
-            tournamentId: tournament.id,
-            type: 'red_card',
-            playerId,
-            teamId,
-            minute: 0,
-            timestamp: matchTime,
-            createdAt: serverTimestamp()
-          });
-        }
-      }
 
       if (type === 'goal') {
         const isOwnGoal = metadata?.goalType === 'own_goal';
-        // If it's an own goal, the OPPONENT gets the point
         const teamToIncrementIsA = isOwnGoal ? !isTeamA : isTeamA;
         
-        await setDoc(matchRef, {
-          [teamToIncrementIsA ? 'scoreA' : 'scoreB']: (teamToIncrementIsA ? liveMatch.scoreA : liveMatch.scoreB) + 1,
-          status: 'live'
-        }, { merge: true });
+        if (isPenaltyShootout) {
+          const field = teamToIncrementIsA ? 'pensA' : 'pensB';
+          await setDoc(matchRef, {
+            [field]: (liveMatch[field] || 0) + 1,
+            status: 'live'
+          }, { merge: true });
+        } else {
+          await setDoc(matchRef, {
+            [teamToIncrementIsA ? 'scoreA' : 'scoreB']: (teamToIncrementIsA ? liveMatch.scoreA : liveMatch.scoreB) + 1,
+            status: 'live'
+          }, { merge: true });
+        }
       }
       setShowEventModal(null);
     } catch (err) {
@@ -1907,40 +2949,44 @@ function MatchScoringView({ tournament, match, teams, onBack, isCreator, notify 
     }
   };
 
-  const undoLastEvent = async () => {
-    if (!isCreator || events.length === 0) return;
+  const undoEvent = async (eventId: string) => {
+    if (!isCreator) return;
     
-    // Sort events by createdAt to find the last one
-    const sortedEvents = [...events].sort((a, b) => {
-      const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
-      const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
-      return timeB - timeA;
-    });
+    const eventToDelete = events.find(e => e.id === eventId);
+    if (!eventToDelete) return;
 
-    const lastEvent = sortedEvents[0];
-    if (!lastEvent) return;
+    if (!window.confirm("Delete this event?")) return;
 
     try {
       const matchRef = doc(db, `tournaments/${tournament.id}/matches/${match.id}`);
-      const eventRef = doc(db, `tournaments/${tournament.id}/matches/${match.id}/events/${lastEvent.id}`);
+      const eventRef = doc(db, `tournaments/${tournament.id}/matches/${match.id}/events/${eventId}`);
 
-      // If it was a goal, decrement score
-      if (lastEvent.type === 'goal') {
-        const isTeamA = lastEvent.teamId === match.teamAId;
-        const isOwnGoal = lastEvent.goalType === 'own_goal';
-        // If it was an own goal, the OPPONENT's score was incremented, so decrement it
-        const teamToDecrementIsA = isOwnGoal ? !isTeamA : isTeamA;
+      // If it was a goal or penalty goal, decrement score
+      if (eventToDelete.type === 'goal' || (eventToDelete.type === 'penalty_kick' && eventToDelete.penaltyResult === 'goal')) {
+        const isTeamA = eventToDelete.teamId === match.teamAId;
+        const isOwnGoal = eventToDelete.type === 'goal' && eventToDelete.goalType === 'own_goal';
+        const isPenaltyShootout = eventToDelete.isPenaltyShootout;
         
-        await updateDoc(matchRef, {
-          [teamToDecrementIsA ? 'scoreA' : 'scoreB']: Math.max(0, (teamToDecrementIsA ? liveMatch.scoreA : liveMatch.scoreB) - 1)
-        });
+        if (isPenaltyShootout) {
+          const field = isTeamA ? 'pensA' : 'pensB';
+          await updateDoc(matchRef, {
+            [field]: Math.max(0, (liveMatch[field] || 0) - 1)
+          });
+        } else {
+          // If it was an own goal, the OPPONENT's score was incremented, so decrement it
+          const teamToDecrementIsA = isOwnGoal ? !isTeamA : isTeamA;
+          
+          await updateDoc(matchRef, {
+            [teamToDecrementIsA ? 'scoreA' : 'scoreB']: Math.max(0, (teamToDecrementIsA ? liveMatch.scoreA : liveMatch.scoreB) - 1)
+          });
+        }
       }
 
       // If it was a second yellow that triggered a red, find and delete the red too
-      if (lastEvent.type === 'yellow_card') {
-        const yellowCount = events.filter(e => e.playerId === lastEvent.playerId && e.type === 'yellow_card').length;
+      if (eventToDelete.type === 'yellow_card') {
+        const yellowCount = events.filter(e => e.playerId === eventToDelete.playerId && e.type === 'yellow_card').length;
         if (yellowCount >= 2) {
-          const matchingRed = events.find(e => e.playerId === lastEvent.playerId && e.type === 'red_card' && e.timestamp === lastEvent.timestamp);
+          const matchingRed = events.find(e => e.playerId === eventToDelete.playerId && e.type === 'red_card' && e.timestamp === eventToDelete.timestamp);
           if (matchingRed) {
             await deleteDoc(doc(db, `tournaments/${tournament.id}/matches/${match.id}/events/${matchingRed.id}`));
           }
@@ -1948,22 +2994,182 @@ function MatchScoringView({ tournament, match, teams, onBack, isCreator, notify 
       }
 
       await deleteDoc(eventRef);
-      notify('Last event undone');
+      notify('Event deleted');
     } catch (err) {
       console.error("Undo error:", err);
-      handleFirestoreError(err, OperationType.DELETE, `tournaments/${tournament.id}/matches/${match.id}/events`);
+      handleFirestoreError(err, OperationType.DELETE, `tournaments/${tournament.id}/matches/${match.id}/events/${eventId}`);
+    }
+  };
+
+  const addPenaltyKick = async (playerId: string, teamId: string, result: 'goal' | 'miss') => {
+    if (!isCreator) return;
+    try {
+      const matchRef = doc(db, `tournaments/${tournament.id}/matches/${match.id}`);
+      const isTeamA = teamId === match.teamAId;
+      const playerRecord = (isTeamA ? playersA : playersB).find(p => p.id === playerId);
+
+      await addDoc(collection(db, `tournaments/${tournament.id}/matches/${match.id}/events`), {
+        matchId: match.id,
+        tournamentId: tournament.id,
+        type: 'penalty_kick',
+        playerId,
+        userId: playerRecord?.userId || null,
+        teamId,
+        minute: 0,
+        timestamp: 'Pens',
+        createdAt: serverTimestamp(),
+        isPenaltyShootout: true,
+        penaltyResult: result
+      });
+
+      if (result === 'goal') {
+        const field = isTeamA ? 'pensA' : 'pensB';
+        await setDoc(matchRef, {
+          [field]: (liveMatch[field] || 0) + 1,
+          status: 'live'
+        }, { merge: true });
+      }
+      notify(`Penalty ${result} recorded`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `tournaments/${tournament.id}/matches/${match.id}/events`);
+    }
+  };
+
+  const addMilestone = async (type: 'half_time' | 'full_time' | 'aet' | 'end') => {
+    if (!isCreator) return;
+    try {
+      let currentMinute = 0;
+      if (liveMatch.isTimerRunning && liveMatch.timerStartTime) {
+        const startTime = liveMatch.timerStartTime.toMillis ? liveMatch.timerStartTime.toMillis() : new Date(liveMatch.timerStartTime).getTime();
+        const baseElapsed = liveMatch.elapsedTimeOnPause || 0;
+        const diff = Math.floor((Date.now() - startTime) / 1000);
+        currentMinute = Math.floor((baseElapsed + diff) / 60) + 1;
+      } else {
+        currentMinute = Math.floor((liveMatch.elapsedTimeOnPause || 0) / 60) + 1;
+      }
+
+      const eventData: any = {
+        matchId: liveMatch.id,
+        tournamentId: tournament.id,
+        type: type,
+        playerId: 'system',
+        teamId: 'system',
+        minute: currentMinute,
+        timestamp: `${currentMinute}'`,
+        createdAt: serverTimestamp()
+      };
+
+      await addDoc(collection(db, `tournaments/${tournament.id}/matches/${match.id}/events`), eventData);
+      
+      // Reset timer on milestone
+      const matchRef = doc(db, `tournaments/${tournament.id}/matches/${match.id}`);
+      await updateDoc(matchRef, {
+        isTimerRunning: false,
+        elapsedTimeOnPause: 0,
+        timerStartTime: null
+      });
+
+      if (type === 'end') {
+        setShowFinishConfirm(true);
+      }
+
+      notify(type === 'half_time' ? 'First half ended' : type === 'full_time' ? 'Full time recorded' : type === 'aet' ? 'Extra time ended' : 'Match ended');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `tournaments/${tournament.id}/matches/${match.id}/events`);
     }
   };
 
   const finishMatch = async () => {
     if (!isCreator || isFinishing) return;
+
+    // Knockout winner check
+    const isKnockout = match.group === 'Playoffs' || match.round;
+    const isSecondLeg = liveMatch.leg === 2;
+    const isFirstLeg = liveMatch.leg === 1;
+
+    // Only block draw if it's a single leg or the second leg of a tie
+    if (isKnockout && !isFirstLeg) {
+      // For second leg, we need to check aggregate
+      if (isSecondLeg && liveMatch.tieId) {
+        const matchesInTie = matches.filter(m => m.tieId === liveMatch.tieId);
+        const leg1 = matchesInTie.find(m => m.leg === 1);
+        if (leg1 && leg1.status === 'finished') {
+          const aggA = leg1.scoreA + liveMatch.scoreB; // Team A in Leg 1 is Away in Leg 2
+          const aggB = leg1.scoreB + liveMatch.scoreA;
+          if (aggA === aggB && (liveMatch.pensA || 0) === (liveMatch.pensB || 0)) {
+            notify('Aggregate is a draw. Please record penalties in this second leg.');
+            return;
+          }
+        }
+      } else if (!liveMatch.leg && liveMatch.scoreA === liveMatch.scoreB && (liveMatch.pensA || 0) === (liveMatch.pensB || 0)) {
+        notify('Knockout matches must have a winner. Please record penalties.');
+        return;
+      }
+    }
+
     setIsFinishing(true);
     try {
+      const suggested = getSuggestedMotM();
       const matchRef = doc(db, `tournaments/${tournament.id}/matches/${match.id}`);
-      await updateDoc(matchRef, { 
+      const updateData: any = { 
         status: 'finished',
         updatedAt: serverTimestamp() 
-      });
+      };
+      if (!liveMatch.manOfTheMatchId && suggested) {
+        updateData.manOfTheMatchId = suggested;
+      }
+      
+      await updateDoc(matchRef, updateData);
+
+      // Handle Bracket Progression
+      if (liveMatch.successorMatchId) {
+        let winnerId = null;
+
+        if (liveMatch.tieId) {
+          const matchesInTie = matches.filter(m => m.tieId === liveMatch.tieId);
+          // Combine current finished match with others
+          const allLegsInTie = matchesInTie.map(m => m.id === match.id ? { ...m, ...updateData, scoreA: liveMatch.scoreA, scoreB: liveMatch.scoreB, pensA: liveMatch.pensA, pensB: liveMatch.pensB, status: 'finished' } : m);
+          
+          if (allLegsInTie.every(m => m.status === 'finished')) {
+            const l1 = allLegsInTie.find(m => m.leg === 1);
+            const l2 = allLegsInTie.find(m => m.leg === 2);
+            if (l1 && l2) {
+              const aggA = l1.scoreA + l2.scoreB;
+              const aggB = l1.scoreB + l2.scoreA;
+              if (aggA > aggB) winnerId = l1.teamAId;
+              else if (aggB > aggA) winnerId = l1.teamBId;
+              else winnerId = (l2.pensA || 0) > (l2.pensB || 0) ? l2.teamAId : l2.teamBId;
+            } else if (l1 && !l2) {
+              // Single leg tie with tieId?
+              winnerId = l1.scoreA > l1.scoreB ? l1.teamAId : (l1.scoreB > l1.scoreA ? l1.teamBId : ((l1.pensA || 0) > (l1.pensB || 0) ? l1.teamAId : l1.teamBId));
+            }
+          }
+        } else {
+          winnerId = liveMatch.scoreA > liveMatch.scoreB ? liveMatch.teamAId : 
+                     liveMatch.scoreB > liveMatch.scoreA ? liveMatch.teamBId :
+                     (liveMatch.pensA || 0) > (liveMatch.pensB || 0) ? liveMatch.teamAId : liveMatch.teamBId;
+        }
+
+        if (winnerId) {
+          const successorIds = liveMatch.successorMatchId.split(',');
+          for (const sId of successorIds) {
+            const successorRef = doc(db, `tournaments/${tournament.id}/matches/${sId.trim()}`);
+            const successorMatch = matches.find(m => m.id === sId.trim());
+            if (successorMatch) {
+              // Check if we need to flip side for home/away in successor ties
+              // If successorSide is A, team moves to teamAId in leg 1 and teamBId in leg 2
+              const side = liveMatch.successorSide;
+              const isLeg2OfSuccessor = successorMatch.leg === 2;
+              const finalSide = isLeg2OfSuccessor ? (side === 'A' ? 'teamBId' : 'teamAId') : (side === 'A' ? 'teamAId' : 'teamBId');
+              
+              await updateDoc(successorRef, {
+                [finalSide]: winnerId
+              });
+            }
+          }
+        }
+      }
+
       setShowFinishConfirm(false);
       notify('Match finished successfully!');
     } catch (err) {
@@ -1974,127 +3180,319 @@ function MatchScoringView({ tournament, match, teams, onBack, isCreator, notify 
     }
   };
 
+  const setManOfTheMatch = async (playerId: string) => {
+    if (!isCreator) return;
+    try {
+      const matchRef = doc(db, `tournaments/${tournament.id}/matches/${match.id}`);
+      await updateDoc(matchRef, { 
+        manOfTheMatchId: playerId
+      });
+      notify('Man of the Match updated!');
+    } catch (err) {
+      console.error("Set MOTM error:", err);
+    }
+  };
+
+  const getSuggestedMotM = () => {
+    const scores: Record<string, number> = {};
+    events.forEach(e => {
+        if (e.type === 'goal' && e.goalType !== 'own_goal' && !e.isPenaltyShootout) {
+            scores[e.playerId] = (scores[e.playerId] || 0) + 3;
+            if (e.assistantId) {
+                scores[e.assistantId] = (scores[e.assistantId] || 0) + 2;
+            }
+        }
+    });
+    
+    let bestPlayerId = null;
+    let maxPts = -1;
+    Object.entries(scores).forEach(([pid, pts]) => {
+        if (pts > maxPts) {
+            maxPts = pts;
+            bestPlayerId = pid;
+        }
+    });
+    return bestPlayerId;
+  };
+
+  const nextMilestone = useMemo(() => {
+    const hasHT = events.some(e => e.type === 'half_time');
+    const hasFT = events.some(e => e.type === 'full_time');
+    const hasAET = events.some(e => e.type === 'aet');
+    const hasEnd = events.some(e => e.type === 'end');
+    
+    if (!hasHT) return 'half_time';
+    if (!hasFT) return 'full_time';
+    if (!hasAET) return 'aet';
+    return 'end';
+  }, [events]);
+
+  const redCardedPlayerIds = useMemo(() => {
+    return new Set(events.filter(e => e.type === 'red_card').map(e => e.playerId));
+  }, [events]);
+
+  const substitutedOutPlayerIds = useMemo(() => {
+    return new Set(events.filter(e => e.type === 'substitution').map(e => e.playerId));
+  }, [events]);
+
+  const penaltyTakerIds = useMemo(() => {
+    return new Set(events.filter(e => e.type === 'penalty_kick').map(e => e.playerId));
+  }, [events]);
+
+  const isEligible = (playerId: string) => {
+    return !redCardedPlayerIds.has(playerId) && !substitutedOutPlayerIds.has(playerId);
+  };
+
+  const manOfTheMatch = allPlayers.find(p => p.id === liveMatch.manOfTheMatchId);
+  const suggestedId = getSuggestedMotM();
+  const suggestedPlayer = allPlayers.find(p => p.id === suggestedId);
+
   return (
     <motion.div 
-      initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}
+      initial={{ opacity: 0, x: 20 }} 
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -20 }}
+      drag="x"
+      dragConstraints={{ left: 0, right: 0 }}
+      onDragEnd={(_, info) => {
+        if (info.offset.x > 150) onBack();
+      }}
       className="space-y-12"
     >
-      <button onClick={onBack} className="flex items-center gap-2 text-slate-400 font-bold hover:text-slate-900 transition-colors uppercase tracking-widest text-[10px]">
-        &larr; Back to Tournament
-      </button>
+      <div className="flex items-center justify-between">
+        <button onClick={onBack} className="flex items-center gap-2 text-slate-400 font-bold hover:text-slate-900 transition-colors uppercase tracking-widest text-[10px]">
+          &larr; Back to Tournament
+        </button>
+        <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest sm:hidden">Swipe right to go back</p>
+      </div>
 
-      <div className="bg-[#121212] text-white rounded-[32px] p-6 md:p-10 shadow-2xl relative overflow-hidden border border-white/5">
+      <div className="bg-white text-slate-900 rounded-[40px] p-6 md:p-10 shadow-[0_30px_100px_rgba(0,0,0,0.08)] relative overflow-hidden border border-black/5">
+        <div className="absolute top-0 left-0 w-full h-1 bg-emerald-500" />
         <div className="flex flex-col items-center gap-8 relative z-10">
           <div className="flex flex-col items-center gap-2">
-            <div className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest bg-white/5 border border-white/10 ${
-              liveMatch.status === 'live' ? 'text-red-500 border-red-500/20' : 'text-white/40'
+            <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+              liveMatch.status === 'live' ? 'bg-emerald-50 text-emerald-500 border border-emerald-200' : 'bg-slate-100 text-slate-400'
             }`}>
-              {liveMatch.status === 'live' ? 'Live' : liveMatch.status === 'finished' ? 'FT' : 'Scheduled'}
+              {liveMatch.status === 'live' ? (
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Live Match
+                </span>
+              ) : liveMatch.status === 'finished' ? 'FT' : 'Scheduled'}
             </div>
-            {liveMatch.status !== 'finished' && <MatchTimer match={liveMatch} isCreator={isCreator} tournament={tournament} />}
+            {liveMatch.status !== 'finished' && <MatchTimer match={liveMatch} isCreator={isCreator} tournament={tournament} onAddMilestone={addMilestone} nextMilestone={nextMilestone} />}
+            
+            {isCreator && liveMatch.status !== 'finished' && liveMatch.scoreA === liveMatch.scoreB && (
+              <div className="flex flex-col items-center gap-4 mt-6">
+                <button
+                  onClick={() => setIsPenaltyShootoutMode(!isPenaltyShootoutMode)}
+                  className={`px-6 py-3 rounded-full text-xs font-black uppercase tracking-widest transition-all border flex items-center gap-2 ${
+                    isPenaltyShootoutMode 
+                      ? 'bg-amber-500 text-white border-amber-400 shadow-xl shadow-amber-500/30 active:scale-95' 
+                      : 'bg-white text-slate-400 border-slate-100 hover:border-slate-200'
+                  }`}
+                >
+                  <Trophy className="w-4 h-4" />
+                  {isPenaltyShootoutMode ? 'Penalty Shootout Mode Active' : 'Go to Penalties'}
+                </button>
+
+                <AnimatePresence>
+                  {isPenaltyShootoutMode && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="bg-amber-50 border border-amber-200 p-6 rounded-[32px] w-full max-w-lg shadow-xl shadow-amber-500/5 mt-4"
+                    >
+                      <h4 className="text-center text-[10px] font-black uppercase tracking-[0.3em] text-amber-600 mb-6 flex items-center justify-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                        Record Penalty
+                      </h4>
+                      <div className="grid grid-cols-2 gap-8">
+                        {/* Team A Picker */}
+                        <div className="space-y-4">
+                          <p className="text-[10px] font-black text-slate-400 uppercase text-center">{teamA?.name}</p>
+                          <select 
+                            id="taker-a"
+                            className="w-full bg-white border border-amber-100 rounded-2xl px-4 py-3 text-xs font-bold"
+                            defaultValue=""
+                          >
+                            <option value="" disabled>Select Taker</option>
+                            {sortPlayersByPosition(playersA)
+                              .filter(p => isEligible(p.id) && !penaltyTakerIds.has(p.id))
+                              .map(p => <option key={p.id} value={p.id}>{p.name} (#{p.number})</option>)}
+                          </select>
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={() => {
+                                const el = document.getElementById('taker-a') as HTMLSelectElement;
+                                const pid = el.value;
+                                if (!pid) return notify('Select a taker');
+                                addPenaltyKick(pid, teamA!.id, 'goal');
+                                el.value = "";
+                              }}
+                              className="flex-1 bg-emerald-500 text-white py-3 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-600 shadow-lg shadow-emerald-500/20 active:scale-95"
+                            >Goal</button>
+                            <button 
+                              onClick={() => {
+                                const el = document.getElementById('taker-a') as HTMLSelectElement;
+                                const pid = el.value;
+                                if (!pid) return notify('Select a taker');
+                                addPenaltyKick(pid, teamA!.id, 'miss');
+                                el.value = "";
+                              }}
+                              className="flex-1 bg-red-500 text-white py-3 rounded-xl text-[10px] font-black uppercase hover:bg-red-600 shadow-lg shadow-red-500/20 active:scale-95"
+                            >Miss</button>
+                          </div>
+                        </div>
+
+                        {/* Team B Picker */}
+                        <div className="space-y-4">
+                          <p className="text-[10px] font-black text-slate-400 uppercase text-center">{teamB?.name}</p>
+                          <select 
+                            id="taker-b"
+                            className="w-full bg-white border border-amber-100 rounded-2xl px-4 py-3 text-xs font-bold"
+                            defaultValue=""
+                          >
+                            <option value="" disabled>Select Taker</option>
+                            {sortPlayersByPosition(playersB)
+                              .filter(p => isEligible(p.id) && !penaltyTakerIds.has(p.id))
+                              .map(p => <option key={p.id} value={p.id}>{p.name} (#{p.number})</option>)}
+                          </select>
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={() => {
+                                const el = document.getElementById('taker-b') as HTMLSelectElement;
+                                const pid = el.value;
+                                if (!pid) return notify('Select a taker');
+                                addPenaltyKick(pid, teamB!.id, 'goal');
+                                el.value = "";
+                              }}
+                              className="flex-1 bg-emerald-500 text-white py-3 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-600 shadow-lg shadow-emerald-500/20 active:scale-95"
+                            >Goal</button>
+                            <button 
+                              onClick={() => {
+                                const el = document.getElementById('taker-b') as HTMLSelectElement;
+                                const pid = el.value;
+                                if (!pid) return notify('Select a taker');
+                                addPenaltyKick(pid, teamB!.id, 'miss');
+                                el.value = "";
+                              }}
+                              className="flex-1 bg-red-500 text-white py-3 rounded-xl text-[10px] font-black uppercase hover:bg-red-600 shadow-lg shadow-red-500/20 active:scale-95"
+                            >Miss</button>
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
           </div>
-          
-          <div className="flex items-start justify-center gap-4 md:gap-12 w-full max-w-4xl mx-auto">
+                   <div className="flex items-start justify-center gap-2 md:gap-16 w-full max-w-4xl mx-auto">
             <div className="flex-1 flex flex-col items-center gap-4 text-center min-w-0">
-              <div className="w-16 h-16 md:w-24 md:h-24 bg-white/5 rounded-2xl flex items-center justify-center border border-white/10 shadow-xl border-b-2 border-b-transparent transition-all shrink-0">
+              <div className="w-16 h-16 md:w-32 md:h-32 bg-slate-50 rounded-2xl md:rounded-3xl flex items-center justify-center border border-black/5 shadow-inner transition-all shrink-0">
                 {teamA?.logoURL ? (
-                  <img src={teamA.logoURL} className="w-full h-full object-cover rounded-2xl" alt="" />
+                  <img src={teamA.logoURL} className="w-10 h-10 md:w-20 md:h-20 object-contain" alt="" />
                 ) : (
-                  <Users className="w-8 h-8 md:w-12 md:h-12 text-white/20" />
+                  <Users className="w-8 h-8 md:w-16 md:h-16 text-slate-200" />
                 )}
               </div>
-              <div className="space-y-4 w-full flex flex-col items-center">
-                <h2 className={`text-xs md:text-xl font-black tracking-tight uppercase leading-tight transition-colors truncate w-full ${
-                  liveMatch.status === 'finished' && liveMatch.scoreA > liveMatch.scoreB ? 'text-emerald-400' : ''
+              <div className="space-y-3 w-full flex flex-col items-center">
+                <h2 className={`text-[11px] md:text-2xl font-black tracking-tight uppercase leading-tight transition-colors truncate w-full ${
+                  liveMatch.status === 'finished' && liveMatch.scoreA > liveMatch.scoreB ? 'text-emerald-500' : 'text-slate-900'
                 }`}>
-                  {(() => {
-                    const name = teamA?.name || '';
-                    if (name.length <= 10) return name;
-                    const parts = name.split(' ');
-                    return parts.length > 1 ? `${parts[0].charAt(0)}. ${parts.slice(1).join(' ')}` : name;
-                  })()}
+                  {teamA?.name}
                 </h2>
                 
                 {isCreator && liveMatch.status !== 'finished' && (
-                  <div className="flex items-center justify-center gap-2">
+                  <div className="flex items-center justify-center gap-1 xl:gap-2">
                     <button 
                       onClick={() => setShowEventModal({ side: 'A', type: 'goal', step: 1 })} 
-                      className="w-10 h-10 md:w-16 md:h-16 bg-emerald-500 rounded-[18px] md:rounded-[24px] flex items-center justify-center hover:bg-emerald-600 transition-all shadow-xl shadow-emerald-500/20 active:scale-90 group shrink-0"
+                      className="w-9 h-9 md:w-20 md:h-20 bg-emerald-500 rounded-xl md:rounded-3xl flex items-center justify-center hover:bg-emerald-600 transition-all shadow-xl shadow-emerald-500/20 active:scale-90 group shrink-0"
                       title="Add Goal"
                     >
-                      <SoccerIcon className="w-5 h-5 md:w-8 md:h-8 text-white group-hover:scale-110 transition-transform" />
+                      <SoccerIcon className="w-5 h-5 md:w-10 md:h-10 text-white group-hover:scale-110 transition-transform" />
                     </button>
                     <button 
                       onClick={() => setShowEventModal({ side: 'A', type: 'yellow_card', step: 1 })} 
-                      className="w-10 h-10 md:w-16 md:h-16 bg-gradient-to-br from-yellow-400 from-50% to-red-500 to-50% rounded-[18px] md:rounded-[24px] flex items-center justify-center hover:opacity-90 transition-all shadow-xl active:scale-90 group shrink-0"
+                      className="w-9 h-9 md:w-20 md:h-20 bg-amber-400 rounded-xl md:rounded-3xl flex items-center justify-center hover:bg-amber-500 transition-all shadow-xl shadow-amber-400/20 active:scale-90 group shrink-0"
                       title="Add Card"
                     >
-                      <Shield className="w-5 h-5 md:w-8 md:h-8 text-white drop-shadow-md group-hover:rotate-12 transition-transform" />
+                      <Shield className="w-5 h-5 md:w-10 md:h-10 text-white drop-shadow-md group-hover:rotate-12 transition-transform" />
                     </button>
                     <button 
                       onClick={() => setShowEventModal({ side: 'A', type: 'substitution', step: 1 })} 
-                      className="w-10 h-10 md:w-16 md:h-16 bg-white/5 border border-white/10 rounded-[18px] md:rounded-[24px] flex items-center justify-center hover:bg-white/10 transition-all active:scale-90 group shrink-0"
+                      className="w-9 h-9 md:w-20 md:h-20 bg-slate-100 rounded-xl md:rounded-3xl flex items-center justify-center hover:bg-slate-200 transition-all active:scale-90 group shrink-0 shadow-sm"
                       title="Substitution"
                     >
-                      <RefreshCw className="w-5 h-5 md:w-8 md:h-8 text-white/40 group-hover:text-white group-hover:rotate-180 transition-all duration-500" />
+                      <ArrowLeftRight className="w-5 h-5 md:w-10 md:h-10 text-slate-400 group-hover:text-slate-600 transition-all" />
                     </button>
                   </div>
                 )}
               </div>
             </div>
  
-            <div className="flex items-center gap-2 md:gap-3 shrink-0 h-16 md:h-24">
-              <span className={`text-4xl md:text-8xl font-black tabular-nums tracking-tighter transition-colors ${
-                liveMatch.status === 'finished' && liveMatch.scoreA > liveMatch.scoreB ? 'text-emerald-400' : ''
-              }`}>{liveMatch.scoreA}</span>
-              <span className="text-xl md:text-4xl font-black text-white/10">-</span>
-              <span className={`text-4xl md:text-8xl font-black tabular-nums tracking-tighter transition-colors ${
-                liveMatch.status === 'finished' && liveMatch.scoreB > liveMatch.scoreA ? 'text-emerald-400' : ''
-              }`}>{liveMatch.scoreB}</span>
+            <div className="flex flex-col items-center justify-center gap-0.5 shrink-0 h-16 md:h-32">
+              <div className="flex items-center gap-2 md:gap-6">
+                <div className="flex flex-col items-center">
+                  <span className={`text-3xl md:text-9xl font-black tabular-nums tracking-tighter transition-colors ${
+                    liveMatch.status === 'finished' && (liveMatch.scoreA > liveMatch.scoreB || (liveMatch.scoreA === liveMatch.scoreB && (liveMatch.pensA || 0) > (liveMatch.pensB || 0))) ? 'text-emerald-500' : 'text-slate-900'
+                  }`}>{liveMatch.scoreA}</span>
+                  {(liveMatch.pensA !== undefined || liveMatch.pensB !== undefined) && (
+                    <span className="text-[10px] md:text-lg font-black text-amber-500 tabular-nums">({liveMatch.pensA || 0})</span>
+                  )}
+                </div>
+                <span className="text-xl md:text-5xl font-black text-slate-200">-</span>
+                <div className="flex flex-col items-center">
+                  <span className={`text-3xl md:text-9xl font-black tabular-nums tracking-tighter transition-colors ${
+                    liveMatch.status === 'finished' && (liveMatch.scoreB > liveMatch.scoreA || (liveMatch.scoreA === liveMatch.scoreB && (liveMatch.pensB || 0) > (liveMatch.pensA || 0))) ? 'text-emerald-500' : 'text-slate-900'
+                  }`}>{liveMatch.scoreB}</span>
+                  {(liveMatch.pensA !== undefined || liveMatch.pensB !== undefined) && (
+                    <span className="text-[10px] md:text-lg font-black text-amber-500 tabular-nums">({liveMatch.pensB || 0})</span>
+                  )}
+                </div>
+              </div>
+              {liveMatch.isTimerRunning && <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse mt-1" />}
             </div>
  
             <div className="flex-1 flex flex-col items-center gap-4 text-center min-w-0">
-              <div className="w-16 h-16 md:w-24 md:h-24 bg-white/5 rounded-2xl flex items-center justify-center border border-white/10 shadow-xl border-b-2 border-b-transparent transition-all shrink-0">
+              <div className="w-16 h-16 md:w-32 md:h-32 bg-slate-50 rounded-2xl md:rounded-3xl flex items-center justify-center border border-black/5 shadow-inner transition-all shrink-0">
                 {teamB?.logoURL ? (
-                  <img src={teamB.logoURL} className="w-full h-full object-cover rounded-2xl" alt="" />
+                  <img src={teamB.logoURL} className="w-10 h-10 md:w-20 md:h-20 object-contain" alt="" />
                 ) : (
-                  <Users className="w-8 h-8 md:w-12 md:h-12 text-white/20" />
+                  <Users className="w-8 h-8 md:w-16 md:h-16 text-slate-200" />
                 )}
               </div>
-              <div className="space-y-4 w-full flex flex-col items-center">
-                <h2 className={`text-xs md:text-xl font-black tracking-tight uppercase leading-tight transition-colors truncate w-full ${
-                  liveMatch.status === 'finished' && liveMatch.scoreB > liveMatch.scoreA ? 'text-emerald-400' : ''
+              <div className="space-y-3 w-full flex flex-col items-center">
+                <h2 className={`text-[11px] md:text-2xl font-black tracking-tight uppercase leading-tight transition-colors truncate w-full ${
+                  liveMatch.status === 'finished' && liveMatch.scoreB > liveMatch.scoreA ? 'text-emerald-500' : 'text-slate-900'
                 }`}>
-                  {(() => {
-                    const name = teamB?.name || '';
-                    if (name.length <= 10) return name;
-                    const parts = name.split(' ');
-                    return parts.length > 1 ? `${parts[0].charAt(0)}. ${parts.slice(1).join(' ')}` : name;
-                  })()}
+                  {teamB?.name}
                 </h2>
 
                 {isCreator && liveMatch.status !== 'finished' && (
-                  <div className="flex items-center justify-center gap-2">
+                  <div className="flex items-center justify-center gap-1 xl:gap-2">
                     <button 
                       onClick={() => setShowEventModal({ side: 'B', type: 'goal', step: 1 })} 
-                      className="w-10 h-10 md:w-16 md:h-16 bg-emerald-500 rounded-[18px] md:rounded-[24px] flex items-center justify-center hover:bg-emerald-600 transition-all shadow-xl shadow-emerald-500/20 active:scale-90 group shrink-0"
+                      className="w-9 h-9 md:w-20 md:h-20 bg-emerald-500 rounded-xl md:rounded-3xl flex items-center justify-center hover:bg-emerald-600 transition-all shadow-xl shadow-emerald-500/20 active:scale-90 group shrink-0"
                       title="Add Goal"
                     >
-                      <SoccerIcon className="w-5 h-5 md:w-8 md:h-8 text-white group-hover:scale-110 transition-transform" />
+                      <SoccerIcon className="w-5 h-5 md:w-10 md:h-10 text-white group-hover:scale-110 transition-transform" />
                     </button>
                     <button 
                       onClick={() => setShowEventModal({ side: 'B', type: 'yellow_card', step: 1 })} 
-                      className="w-10 h-10 md:w-16 md:h-16 bg-gradient-to-br from-yellow-400 from-50% to-red-500 to-50% rounded-[18px] md:rounded-[24px] flex items-center justify-center hover:opacity-90 transition-all shadow-xl active:scale-90 group shrink-0"
+                      className="w-9 h-9 md:w-20 md:h-20 bg-amber-400 rounded-xl md:rounded-3xl flex items-center justify-center hover:bg-amber-500 transition-all shadow-xl shadow-amber-400/20 active:scale-90 group shrink-0"
                       title="Add Card"
                     >
-                      <Shield className="w-5 h-5 md:w-8 md:h-8 text-white drop-shadow-md group-hover:rotate-12 transition-transform" />
+                      <Shield className="w-5 h-5 md:w-10 md:h-10 text-white drop-shadow-md group-hover:rotate-12 transition-transform" />
                     </button>
                     <button 
                       onClick={() => setShowEventModal({ side: 'B', type: 'substitution', step: 1 })} 
-                      className="w-10 h-10 md:w-16 md:h-16 bg-white/5 border border-white/10 rounded-[18px] md:rounded-[24px] flex items-center justify-center hover:bg-white/10 transition-all active:scale-90 group shrink-0"
+                      className="w-9 h-9 md:w-20 md:h-20 bg-slate-100 rounded-xl md:rounded-3xl flex items-center justify-center hover:bg-slate-200 transition-all active:scale-90 group shrink-0 shadow-sm"
                       title="Substitution"
                     >
-                      <RefreshCw className="w-5 h-5 md:w-8 md:h-8 text-white/40 group-hover:text-white group-hover:rotate-180 transition-all duration-500" />
+                      <ArrowLeftRight className="w-5 h-5 md:w-10 md:h-10 text-slate-400 group-hover:text-slate-600 transition-all" />
                     </button>
                   </div>
                 )}
@@ -2104,19 +3502,18 @@ function MatchScoringView({ tournament, match, teams, onBack, isCreator, notify 
         </div>
 
         <div className="mt-16 max-w-2xl mx-auto">
-          <div className="flex items-center gap-4 mb-8">
-            <div className="h-px flex-1 bg-white/5" />
-            <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-white/20">Match Timeline</h3>
-            <div className="h-px flex-1 bg-white/5" />
+          <div className="flex items-center gap-4 mb-10">
+            <div className="h-px flex-1 bg-slate-100" />
+            <h3 className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-400">Match Timeline</h3>
+            <div className="h-px flex-1 bg-slate-100" />
           </div>
 
-          <div className="relative space-y-6">
-            {/* Center Line */}
-            <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/5 -translate-x-1/2" />
+          <div className="relative space-y-8">
+            <div className="absolute left-1/2 top-0 bottom-0 w-px bg-slate-200 -translate-x-1/2" />
 
             {events.length === 0 && (
-              <div className="text-center py-12 text-white/10 font-bold uppercase tracking-widest text-xs">
-                Waiting for events...
+              <div className="text-center py-24 text-slate-200 font-black uppercase tracking-[0.2em] text-xs">
+                Waiting for match kick-off...
               </div>
             )}
 
@@ -2130,15 +3527,45 @@ function MatchScoringView({ tournament, match, teams, onBack, isCreator, notify 
               const timeB = parseTime(b.timestamp || "");
               if (timeA !== timeB) return timeA - timeB;
               
-              // Secondarily sort by createdAt to keep order of entry
-              const createA = a.createdAt?.toMillis() || 0;
-              const createB = b.createdAt?.toMillis() || 0;
+              const createA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+              const createB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
               return createA - createB;
             }).map((e) => {
+              if (e.type === 'half_time' || e.type === 'full_time' || e.type === 'aet' || e.type === 'penalty_kick') {
+                if (e.type === 'penalty_kick') {
+                  const playerTeamId = e.teamId;
+                  const isPlayerTeamA = playerTeamId === match.teamAId;
+                  const pl = (isPlayerTeamA ? playersA : playersB).find(p => p.id === e.playerId);
+                  const result = e.penaltyResult || 'goal';
+
+                  return (
+                    <div key={e.id} className="relative z-10 flex justify-center">
+                      <div className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-md flex items-center gap-2 border-2 ${
+                        result === 'goal' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'
+                      }`}>
+                         <span className="opacity-50">{isPlayerTeamA ? 'HOME' : 'AWAY'}</span>
+                         <span>{pl?.name?.split(' #')[0]}</span>
+                         <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                         <span>{result}</span>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div key={e.id} className="relative z-10 flex justify-center">
+                    <div className="bg-slate-900 text-white px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-widest shadow-xl ring-4 ring-white">
+                      {e.type === 'half_time' ? 'Half Time' : 
+                       e.type === 'full_time' ? 'Full Time' : 
+                       e.type === 'aet' ? 'AET' : 'Match Ended'} • {e.timestamp}
+                    </div>
+                  </div>
+                );
+              }
+
               const playerTeamId = e.teamId;
               const isPlayerTeamA = playerTeamId === match.teamAId;
               const isOwnGoal = e.type === 'goal' && e.goalType === 'own_goal';
-              // Display on the beneficiary's side (if OG, it's the other team's side)
               const displayOnLeft = isOwnGoal ? !isPlayerTeamA : isPlayerTeamA;
               
               const pl = (isPlayerTeamA ? playersA : playersB).find(p => p.id === e.playerId);
@@ -2146,33 +3573,27 @@ function MatchScoringView({ tournament, match, teams, onBack, isCreator, notify 
               
               return (
                 <motion.div 
-                  initial={{ opacity: 0, x: displayOnLeft ? -20 : 20 }}
-                  animate={{ opacity: 1, x: 0 }}
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
                   key={e.id} 
-                  className="relative flex items-center group"
+                  className="relative flex items-center group min-h-[60px]"
                 >
                   {/* Event Marker */}
                   <div className="absolute left-1/2 -translate-x-1/2 flex items-center justify-center z-10">
-                    {isValidTime ? (
-                      <div className={`w-8 h-8 rounded-full bg-[#121212] border ${isOwnGoal ? 'border-red-500/50' : 'border-white/10'} flex items-center justify-center text-[9px] font-black ${isOwnGoal ? 'text-red-500' : 'text-white/60'} shadow-xl group-hover:border-white/30 transition-all`}>
-                        {e.timestamp}
-                      </div>
-                    ) : (
-                      <div className="w-3 h-3 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
-                        <div className="w-1 h-1 rounded-full bg-white/20" />
-                      </div>
-                    )}
+                    <div className={`w-10 h-10 rounded-xl bg-white border flex items-center justify-center text-[9px] font-black shadow-sm transition-all group-hover:border-emerald-200 ${isOwnGoal ? 'border-red-200 text-red-500' : 'border-slate-100 text-slate-400 font-mono'}`}>
+                      {e.timestamp}
+                    </div>
                   </div>
 
-                  {/* Left Side Content (Team A display side) */}
-                  <div className={`flex-1 flex flex-col items-end pr-8 transition-all ${displayOnLeft ? 'opacity-100' : 'opacity-20 translate-x-2 grayscale'}`}>
+                  {/* Left Side Content */}
+                  <div className="flex-1 flex flex-col items-end pr-8 transition-all">
                     {displayOnLeft && (
-                      <div className="text-right space-y-1">
+                      <div className="text-right space-y-0.5" id={`event-left-${e.id}`}>
                         <div className="flex items-center justify-end gap-3">
                           <div className="flex flex-col items-end">
-                            <span className={`text-xs font-black ${isOwnGoal ? 'text-red-500' : 'text-white'}`}>{pl?.name?.split(' (')[0].split(' #')[0]}</span>
+                            <span className={`text-xs font-black ${isOwnGoal ? 'text-red-500' : 'text-slate-900'}`}>{pl?.name?.split(' (')[0].split(' #')[0]}</span>
                             {e.assistantId && (
-                              <div className="flex items-center justify-end gap-1 text-[9px] text-white/40 font-black uppercase">
+                              <div className="flex items-center justify-end gap-1 text-[9px] text-slate-400 font-bold uppercase transition-colors">
                                 <span>{ (isPlayerTeamA ? playersA : playersB).find(p => p.id === e.assistantId)?.name?.split(' (')[0].split(' #')[0] }</span>
                                 {e.type === 'substitution' ? <ArrowUp className="w-2.5 h-2.5 text-emerald-500" /> : <Footprints className="w-2.5 h-2.5" />}
                               </div>
@@ -2180,7 +3601,7 @@ function MatchScoringView({ tournament, match, teams, onBack, isCreator, notify 
                           </div>
                           {e.type === 'goal' ? (
                             <div className="w-6 h-6 flex items-center justify-center">
-                              <SoccerIcon className={`w-4 h-4 ${isOwnGoal ? 'text-red-500' : 'text-white'}`} />
+                              <SoccerIcon className={`w-4 h-4 ${isOwnGoal ? 'text-red-500' : 'text-emerald-500'}`} />
                             </div>
                           ) : e.type === 'substitution' ? (
                             <div className="flex flex-col items-center gap-0.5">
@@ -2188,27 +3609,24 @@ function MatchScoringView({ tournament, match, teams, onBack, isCreator, notify 
                               <ArrowUp className="w-2.5 h-2.5 text-emerald-500" />
                             </div>
                           ) : (
-                            <div className={`w-3.5 h-5 rounded-sm shadow-md ${e.type === 'yellow_card' ? 'bg-yellow-400' : 'bg-red-500'}`} />
+                            <div className={`w-3 h-4 rounded-[2px] shadow-sm ${e.type === 'yellow_card' ? 'bg-amber-400' : 'bg-red-500'}`} />
                           )}
                         </div>
                         {e.type === 'goal' && e.goalType && (
-                          <div className={`text-[10px] uppercase font-black ${isOwnGoal ? 'text-red-500/60' : 'text-white/30'}`}>{e.goalType.replace('_',' ')}</div>
-                        )}
-                        {isCreator && e.id === lastEventId && (
-                           <button onClick={undoLastEvent} className="text-[8px] uppercase font-black text-red-500/40 hover:text-red-500 transition-colors">Undo</button>
+                          <div className={`text-[9px] uppercase font-black tracking-widest ${isOwnGoal ? 'text-red-500/50' : 'text-slate-300'}`}>{e.goalType.replace('_',' ')}</div>
                         )}
                       </div>
                     )}
                   </div>
 
-                  {/* Right Side Content (Team B display side) */}
-                  <div className={`flex-1 flex flex-col items-start pl-8 transition-all ${!displayOnLeft ? 'opacity-100' : 'opacity-20 -translate-x-2 grayscale'}`}>
+                  {/* Spacer for Marker */}
+                  <div className="flex-1 pl-8">
                     {!displayOnLeft && (
-                      <div className="text-left space-y-1">
+                      <div className="text-left space-y-0.5" id={`event-right-${e.id}`}>
                         <div className="flex items-center justify-start gap-3">
                           {e.type === 'goal' ? (
                             <div className="w-6 h-6 flex items-center justify-center">
-                              <SoccerIcon className={`w-4 h-4 ${isOwnGoal ? 'text-red-500' : 'text-white'}`} />
+                              <SoccerIcon className={`w-4 h-4 ${isOwnGoal ? 'text-red-500' : 'text-emerald-500'}`} />
                             </div>
                           ) : e.type === 'substitution' ? (
                             <div className="flex flex-col items-center gap-0.5">
@@ -2216,12 +3634,12 @@ function MatchScoringView({ tournament, match, teams, onBack, isCreator, notify 
                               <ArrowUp className="w-2.5 h-2.5 text-emerald-500" />
                             </div>
                           ) : (
-                            <div className={`w-3.5 h-5 rounded-sm shadow-md ${e.type === 'yellow_card' ? 'bg-yellow-400' : 'bg-red-500'}`} />
+                            <div className={`w-3 h-4 rounded-[2px] shadow-sm ${e.type === 'yellow_card' ? 'bg-amber-400' : 'bg-red-500'}`} />
                           )}
                           <div className="flex flex-col items-start">
-                            <span className={`text-xs font-black ${isOwnGoal ? 'text-red-500' : 'text-white'}`}>{pl?.name?.split(' (')[0].split(' #')[0]}</span>
+                            <span className={`text-xs font-black ${isOwnGoal ? 'text-red-500' : 'text-slate-900'}`}>{pl?.name?.split(' (')[0].split(' #')[0]}</span>
                             {e.assistantId && (
-                              <div className="flex items-center justify-start gap-1 text-[9px] text-white/40 font-black uppercase">
+                              <div className="flex items-center justify-start gap-1 text-[9px] text-slate-400 font-bold uppercase transition-colors">
                                 {e.type === 'substitution' ? <ArrowUp className="w-2.5 h-2.5 text-emerald-500" /> : <Footprints className="w-2.5 h-2.5" />}
                                 <span>{ (isPlayerTeamA ? playersA : playersB).find(p => p.id === e.assistantId)?.name?.split(' (')[0].split(' #')[0] }</span>
                               </div>
@@ -2229,19 +3647,165 @@ function MatchScoringView({ tournament, match, teams, onBack, isCreator, notify 
                           </div>
                         </div>
                         {e.type === 'goal' && e.goalType && (
-                          <div className={`text-[10px] uppercase font-black ${isOwnGoal ? 'text-red-500/60' : 'text-white/30'}`}>{e.goalType.replace('_',' ')}</div>
-                        )}
-                        {isCreator && e.id === lastEventId && (
-                           <button onClick={undoLastEvent} className="text-[8px] uppercase font-black text-red-500/40 hover:text-red-500 transition-colors">Undo</button>
+                          <div className={`text-[9px] uppercase font-black tracking-widest ${isOwnGoal ? 'text-red-500/50' : 'text-slate-300'}`}>{e.goalType.replace('_',' ')}</div>
                         )}
                       </div>
                     )}
                   </div>
+                  
+                  {isCreator && (
+                    <button 
+                      onClick={() => undoEvent(e.id)} 
+                      className="absolute top-1/2 -translate-y-1/2 -right-4 opacity-0 group-hover:opacity-100 p-2 text-slate-200 hover:text-red-500 transition-all font-black text-[9px] uppercase"
+                    >
+                      Undo
+                    </button>
+                  )}
                 </motion.div>
               );
             })}
           </div>
         </div>
+
+        {/* Penalty Shootout History */}
+        {events.some(e => e.type === 'penalty_kick') && (
+          <div className="mt-16 max-w-2xl mx-auto border-t border-slate-100 pt-16">
+            <div className="flex items-center gap-4 mb-10 text-center">
+              <div className="h-px flex-1 bg-slate-100" />
+              <h3 className="text-[11px] font-black uppercase tracking-[0.4em] text-amber-500">Penalty Shootout Results</h3>
+              <div className="h-px flex-1 bg-slate-100" />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-12">
+              {/* Team A Penalties */}
+              <div className="space-y-4" id="pens-a-hist">
+                <p className="text-[10px] font-black text-slate-400 uppercase text-center tracking-widest">{teamA?.name}</p>
+                <div className="flex flex-wrap justify-center gap-3">
+                  {events.filter(e => e.type === 'penalty_kick' && e.teamId === teamA?.id).sort((a,b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0)).map((e, idx) => {
+                    const pl = (e.teamId === teamA?.id ? playersA : playersB).find(p => p.id === e.playerId);
+                    return (
+                      <div key={e.id} className="flex flex-col items-center gap-1">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shadow-sm border-2 ${e.penaltyResult === 'goal' ? 'bg-emerald-500 text-white border-emerald-400' : 'bg-red-500 text-white border-red-400'}`}>
+                          {e.penaltyResult === 'goal' ? '✓' : '✗'}
+                        </div>
+                        <span className="text-[8px] font-black text-slate-400 uppercase">{pl?.name?.split(' ')[0]}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="text-center mt-4">
+                  <span className="text-3xl font-black text-slate-900">{liveMatch.pensA || 0}</span>
+                </div>
+              </div>
+
+              {/* Team B Penalties */}
+              <div className="space-y-4" id="pens-b-hist">
+                <p className="text-[10px] font-black text-slate-400 uppercase text-center tracking-widest">{teamB?.name}</p>
+                <div className="flex flex-wrap justify-center gap-3">
+                  {events.filter(e => e.type === 'penalty_kick' && e.teamId === teamB?.id).sort((a,b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0)).map((e, idx) => {
+                    const pl = (e.teamId === teamB?.id ? playersB : playersA).find(p => p.id === e.playerId);
+                    return (
+                      <div key={e.id} className="flex flex-col items-center gap-1">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shadow-sm border-2 ${e.penaltyResult === 'goal' ? 'bg-emerald-500 text-white border-emerald-400' : 'bg-red-500 text-white border-red-400'}`}>
+                          {e.penaltyResult === 'goal' ? '✓' : '✗'}
+                        </div>
+                        <span className="text-[8px] font-black text-slate-400 uppercase">{pl?.name?.split(' ')[0]}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="text-center mt-4">
+                  <span className="text-3xl font-black text-slate-900">{liveMatch.pensB || 0}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Man of the Match Section */}
+        {liveMatch.status === 'finished' && (
+          <div className="mt-16 max-w-2xl mx-auto border-t border-slate-100 pt-16">
+            <div className="flex flex-col items-center text-center space-y-6">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="h-px w-8 bg-amber-200" />
+                <div className="flex items-center gap-2">
+                  <Star className="w-5 h-5 text-amber-500 fill-amber-500" />
+                  <h3 className="text-sm font-black uppercase tracking-[0.3em] text-amber-600">Man of the Match</h3>
+                </div>
+                <div className="h-px w-8 bg-amber-200" />
+              </div>
+
+              {manOfTheMatch ? (
+                <motion.div 
+                  initial={{ scale: 0.9, opacity: 0 }} 
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="bg-amber-50 border-2 border-amber-200 rounded-[32px] p-8 flex flex-col items-center gap-4 shadow-xl shadow-amber-500/10 min-w-[300px]"
+                >
+                  <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center border-4 border-amber-200 shadow-lg text-amber-500 font-black text-3xl">
+                    {manOfTheMatch.number || <Zap className="w-8 h-8" />}
+                  </div>
+                  <div>
+                    <h4 className="text-2xl font-black text-slate-900 tracking-tight">{manOfTheMatch.name}</h4>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-600 mt-1">
+                      {teams.find(t => t.id === manOfTheMatch.teamId)?.name}
+                    </p>
+                  </div>
+                  {isCreator && (
+                    <button 
+                      onClick={() => setManOfTheMatch('')}
+                      className="text-[10px] font-black text-amber-600/50 hover:text-red-500 uppercase tracking-widest transition-colors pt-2"
+                    >
+                      Change MotM
+                    </button>
+                  )}
+                </motion.div>
+              ) : isCreator ? (
+                <div className="w-full space-y-4">
+                  {suggestedPlayer && (
+                    <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 flex items-center justify-between">
+                      <div className="text-left">
+                        <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Suggested by Performance</p>
+                        <p className="font-bold text-slate-900">{suggestedPlayer.name}</p>
+                      </div>
+                      <button 
+                        onClick={() => setManOfTheMatch(suggestedPlayer.id)}
+                        className="bg-emerald-500 text-white px-4 py-2 rounded-full text-xs font-black shadow-lg shadow-emerald-500/20"
+                      >
+                        Confirm
+                      </button>
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Man of the Match</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <select 
+                        className="w-full bg-slate-50 px-5 py-4 rounded-2xl border border-slate-200 font-bold text-sm"
+                        onChange={(e) => {
+                          if (e.target.value) setManOfTheMatch(e.target.value);
+                        }}
+                        defaultValue=""
+                      >
+                        <option value="" disabled>Choose a player...</option>
+                        <optgroup label={teamA?.name}>
+                          {sortPlayersByPosition(playersA).map(p => (
+                            <option key={p.id} value={p.id}>{p.name} (#{p.number})</option>
+                          ))}
+                        </optgroup>
+                        <optgroup label={teamB?.name}>
+                          {sortPlayersByPosition(playersB).map(p => (
+                            <option key={p.id} value={p.id}>{p.name} (#{p.number})</option>
+                          ))}
+                        </optgroup>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-slate-300 font-bold italic text-sm">Not yet awarded</p>
+              )}
+            </div>
+          </div>
+        )}
 
 
         {isCreator && liveMatch.status !== 'finished' && (
@@ -2269,187 +3833,210 @@ function MatchScoringView({ tournament, match, teams, onBack, isCreator, notify 
               </button>
 
               <h3 className="text-xl font-black mb-6 flex items-center gap-2 uppercase tracking-tighter">
-                {showEventModal.type === 'goal' ? (showEventModal.step === 1 ? 'Select Goal Scorer' : 'Goal Details') : 
-                 showEventModal.type === 'substitution' ? (showEventModal.step === 1 ? 'Player Out' : 'Player In') :
-                 (showEventModal.step === 1 ? 'Select Player' : 'Card Type')}
+                {showEventModal.type === 'goal' ? 
+                  (showEventModal.step === 1 ? 'Goal Type' : 
+                   showEventModal.step === 2 ? 'Select Scorer' : 'Goal Details') : 
+                 showEventModal.type === 'substitution' ? 
+                  (showEventModal.step === 1 ? 'Player Out' : 'Player In') :
+                  (showEventModal.step === 1 ? 'Select Player' : 'Card Type')}
               </h3>
 
               {showEventModal.step === 1 ? (
-                <div className="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto pr-1">
-                  {(showEventModal.side === 'A' ? playersA : playersB)
-                    .filter(p => {
-                      if (showEventModal.type === 'substitution') return true; // Can sub anyone technically
-                      return !events.some(e => e.playerId === p.id && e.type === 'red_card');
-                    })
-                    .map((p, idx) => (
-                    <button 
-                      key={p.id}
-                      onClick={() => {
-                        if (showEventModal.type === 'goal') {
-                          setShowEventModal({ ...showEventModal, step: 2, data: { playerId: p.id, goalType: 'open_goal' } });
-                        } else if (showEventModal.type === 'yellow_card' || showEventModal.type === 'red_card') {
-                          setShowEventModal({ ...showEventModal, step: 2, data: { playerId: p.id, cardType: 'yellow_card' } });
-                        } else if (showEventModal.type === 'substitution') {
-                          setShowEventModal({ ...showEventModal, step: 2, data: { playerOutId: p.id } });
-                        }
-                      }}
-                      className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl hover:border-emerald-500 hover:bg-emerald-50 transition-all text-left group"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-[10px] font-black shadow-sm group-hover:text-emerald-600">
-                          {showEventModal.type === 'goal' ? <SoccerIcon className="w-4 h-4 text-slate-300 group-hover:text-emerald-500" /> : 
-                           showEventModal.type === 'substitution' ? <ArrowDown className="w-4 h-4 text-red-400" /> :
-                           <Shield className="w-4 h-4 text-slate-300 group-hover:text-yellow-400" />}
+                showEventModal.type === 'goal' ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: 'open_goal', label: 'Open Goal' },
+                      { id: 'header', label: 'Header' },
+                      { id: 'penalty', label: 'Penalty' },
+                      { id: 'free_kick', label: 'Free Kick' },
+                      { id: 'own_goal', label: 'Own Goal', special: 'red' }
+                    ].map(gType => (
+                      <button
+                        key={gType.id}
+                        onClick={() => {
+                          setShowEventModal({ 
+                            ...showEventModal, 
+                            step: 2,
+                            data: { goalType: gType.id as GoalType } 
+                          });
+                        }}
+                        className={`py-6 px-2 rounded-2xl transition-all font-black text-[10px] uppercase tracking-widest border border-slate-100 bg-slate-50 text-slate-600 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-600`}
+                      >
+                        {gType.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto pr-1 scrollbar-hide">
+                    {sortPlayersByPosition(showEventModal.side === 'A' ? playersA : playersB)
+                      .filter(p => {
+                        if (showEventModal.type === 'substitution') return isEligible(p.id); 
+                        return !redCardedPlayerIds.has(p.id);
+                      })
+                      .map((p, idx) => (
+                      <button 
+                        key={p.id}
+                        onClick={() => {
+                          if (showEventModal.type === 'yellow_card' || showEventModal.type === 'red_card') {
+                            setShowEventModal({ ...showEventModal, step: 2, data: { playerId: p.id, cardType: 'yellow_card' } });
+                          } else if (showEventModal.type === 'substitution') {
+                            setShowEventModal({ ...showEventModal, step: 2, data: { playerOutId: p.id } });
+                          }
+                        }}
+                        className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl hover:border-emerald-500 hover:bg-emerald-50 transition-all text-left group"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-[10px] font-black shadow-sm group-hover:text-emerald-600">
+                            {showEventModal.type === 'substitution' ? <ArrowDown className="w-4 h-4 text-red-400" /> :
+                             <Shield className="w-4 h-4 text-slate-300 group-hover:text-amber-400" />}
+                          </div>
+                          <div className="font-bold flex items-center gap-2">
+                            {p.name.split(' (')[0].split(' #')[0]}
+                          </div>
                         </div>
-                        <div className="font-bold flex items-center gap-2">
-                          {p.name.split(' (')[0].split(' #')[0]}
+                        <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{p.position}</div>
+                      </button>
+                    ))}
+                  </div>
+                )
+              ) : showEventModal.step === 2 ? (
+                showEventModal.type === 'goal' ? (
+                  <div className="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto pr-1 scrollbar-hide">
+                    {sortPlayersByPosition(showEventModal.side === 'A' ? playersA : playersB)
+                      .filter(p => isEligible(p.id))
+                      .map((p) => (
+                      <button 
+                        key={p.id}
+                        onClick={() => {
+                          const gt = showEventModal.data.goalType;
+                          if (gt === 'open_goal' || gt === 'header') {
+                            setShowEventModal({ ...showEventModal, step: 3, data: { ...showEventModal.data, playerId: p.id } });
+                          } else {
+                            addEvent(p.id, 'goal', showEventModal.side === 'A' ? match.teamAId : match.teamBId, { goalType: gt });
+                          }
+                        }}
+                        className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl hover:border-emerald-500 hover:bg-emerald-50 transition-all text-left group"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center">
+                            <SoccerIcon className="w-4 h-4 text-slate-300 group-hover:text-emerald-500" />
+                          </div>
+                          <span className="font-bold">{p.name.split(' (')[0].split(' #')[0]}</span>
                         </div>
-                      </div>
-                      <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{p.position}</div>
-                    </button>
-                  ))}
-                </div>
+                        <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{p.position}</div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {(showEventModal.type === 'yellow_card' || showEventModal.type === 'red_card') && (
+                      <>
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Select Card</p>
+                          <div className="grid grid-cols-2 gap-4">
+                            <button 
+                              onClick={() => setShowEventModal({ ...showEventModal, data: { ...showEventModal.data, cardType: 'yellow_card' } })}
+                              className={`flex flex-col items-center gap-3 p-6 rounded-3xl border-2 transition-all ${
+                                showEventModal.data.cardType === 'yellow_card' ? 'bg-yellow-50 border-yellow-400 shadow-lg shadow-yellow-400/10' : 'bg-slate-50 border-slate-100'
+                              }`}
+                            >
+                              <div className="w-8 h-12 bg-yellow-400 rounded-sm shadow-md" />
+                              <span className={`font-black text-[10px] uppercase tracking-widest ${showEventModal.data.cardType === 'yellow_card' ? 'text-yellow-700' : 'text-slate-400'}`}>Yellow</span>
+                            </button>
+                            <button 
+                              onClick={() => setShowEventModal({ ...showEventModal, data: { ...showEventModal.data, cardType: 'red_card' } })}
+                              className={`flex flex-col items-center gap-3 p-6 rounded-3xl border-2 transition-all ${
+                                showEventModal.data.cardType === 'red_card' ? 'bg-red-50 border-red-500 shadow-lg shadow-red-500/10' : 'bg-slate-50 border-slate-100'
+                              }`}
+                            >
+                              <div className="w-8 h-12 bg-red-500 rounded-sm shadow-md" />
+                              <span className={`font-black text-[10px] uppercase tracking-widest ${showEventModal.data.cardType === 'red_card' ? 'text-red-700' : 'text-slate-400'}`}>Red</span>
+                            </button>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => addEvent(showEventModal.data.playerId, showEventModal.data.cardType, showEventModal.side === 'A' ? match.teamAId : match.teamBId)}
+                          className={`w-full py-4 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg transition-all active:scale-95 ${
+                            showEventModal.data.cardType === 'yellow_card' ? 'bg-yellow-500 shadow-yellow-500/20 hover:bg-yellow-600' : 'bg-red-500 shadow-red-500/20 hover:bg-red-600'
+                          }`}
+                        >
+                          Assign Card
+                        </button>
+                      </>
+                    )}
+
+                    {showEventModal.type === 'substitution' && (
+                      <>
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Player In</p>
+                          <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-1">
+                            {(showEventModal.side === 'A' ? playersA : playersB)
+                              .filter(p => p.id !== showEventModal.data.playerOutId && isEligible(p.id))
+                              .map((p) => (
+                              <button 
+                                key={p.id}
+                                onClick={() => setShowEventModal({ ...showEventModal, data: { ...showEventModal.data, playerInId: p.id } })}
+                                className={`flex items-center justify-between p-4 rounded-2xl border-2 transition-all text-left ${
+                                  showEventModal.data.playerInId === p.id ? 'bg-emerald-50 border-emerald-500' : 'bg-slate-50 border-slate-100 hover:border-emerald-200'
+                                }`}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center">
+                                    <ArrowUp className="w-4 h-4 text-emerald-500" />
+                                  </div>
+                                  <span className="font-bold">{p.name.split(' (')[0].split(' #')[0]}</span>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <button
+                          disabled={!showEventModal.data.playerInId}
+                          onClick={() => {
+                            addEvent(showEventModal.data.playerOutId, 'substitution', showEventModal.side === 'A' ? match.teamAId : match.teamBId, { assistantId: showEventModal.data.playerInId });
+                          }}
+                          className="w-full py-4 bg-emerald-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:bg-emerald-600 transition-all active:scale-95 disabled:opacity-50"
+                        >
+                          Confirm Sub
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )
               ) : (
                 <div className="space-y-6">
                   {showEventModal.type === 'goal' && (
                     <>
                       <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Goal Type</p>
-                        <div className="grid grid-cols-2 gap-2">
-                          {[
-                            { id: 'open_goal', label: 'Open Goal' },
-                            { id: 'header', label: 'Header' },
-                            { id: 'penalty', label: 'Penalty' },
-                            { id: 'own_goal', label: 'Own Goal' }
-                          ].map(gType => (
-                            <button
-                              key={gType.id}
-                              onClick={() => {
-                                setShowEventModal({ 
-                                  ...showEventModal, 
-                                  data: { 
-                                    ...showEventModal.data, 
-                                    goalType: gType.id as GoalType,
-                                    assistantId: gType.id === 'own_goal' ? undefined : showEventModal.data.assistantId
-                                  } 
-                                });
-                              }}
-                              className={`py-3 px-2 rounded-2xl transition-all font-black text-[9px] uppercase tracking-widest border ${
-                                showEventModal.data.goalType === gType.id 
-                                  ? 'bg-emerald-500 text-white border-emerald-500 shadow-md' 
-                                  : 'bg-slate-50 text-slate-400 border-slate-100 hover:bg-slate-100'
-                              }`}
-                            >
-                              {gType.label}
-                            </button>
-                          ))}
-                        </div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Assisted by (Optional)</p>
+                        <select 
+                          className="w-full bg-slate-50 px-5 py-4 rounded-2xl border border-slate-200 font-bold text-sm"
+                          defaultValue={showEventModal.data.assistantId || ""}
+                          onChange={(e) => setShowEventModal({ ...showEventModal, data: { ...showEventModal.data, assistantId: e.target.value } })}
+                        >
+                          <option value="">No Assist</option>
+                          {sortPlayersByPosition(showEventModal.side === 'A' ? playersA : playersB)
+                            .filter(p => p.id !== showEventModal.data.playerId && isEligible(p.id))
+                            .map((p) => <option key={p.id} value={p.id}>{p.name.split(' (')[0].split(' #')[0]} ({p.position})</option>)}
+                        </select>
                       </div>
-
-                      {showEventModal.data.goalType !== 'own_goal' && (
-                        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Assisted by (Optional)</p>
-                          <select 
-                            className="w-full bg-slate-50 px-5 py-4 rounded-2xl border border-slate-200 font-bold text-sm"
-                            defaultValue={showEventModal.data.assistantId || ""}
-                            onChange={(e) => setShowEventModal({ ...showEventModal, data: { ...showEventModal.data, assistantId: e.target.value } })}
-                          >
-                            <option value="">No Assist</option>
-                            {(showEventModal.side === 'A' ? playersA : playersB)
-                              .filter(p => p.id !== showEventModal.data.playerId)
-                              .map((p) => <option key={p.id} value={p.id}>{p.name.split(' (')[0].split(' #')[0]}</option>)}
-                          </select>
-                        </motion.div>
-                      )}
 
                       <button
                         onClick={() => {
-                          addEvent(
-                            showEventModal.data.playerId, 
-                            'goal', 
-                            showEventModal.side === 'A' ? match.teamAId : match.teamBId,
-                            { 
-                              assistantId: showEventModal.data.goalType === 'own_goal' ? undefined : showEventModal.data.assistantId, 
-                              goalType: showEventModal.data.goalType 
-                            }
-                          );
+                        addEvent(
+                          showEventModal.data.playerId, 
+                          'goal', 
+                          showEventModal.side === 'A' ? match.teamAId : match.teamBId,
+                          { 
+                            assistantId: showEventModal.data.assistantId, 
+                            goalType: showEventModal.data.goalType,
+                            isPenaltyShootout: isPenaltyShootoutMode
+                          }
+                        );
                         }}
                         className="w-full py-4 bg-emerald-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:bg-emerald-600 transition-all active:scale-95"
                       >
                         Record Goal
-                      </button>
-                    </>
-                  )}
-
-                  {(showEventModal.type === 'yellow_card' || showEventModal.type === 'red_card') && (
-                    <>
-                      <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Select Card</p>
-                        <div className="grid grid-cols-2 gap-4">
-                          <button 
-                            onClick={() => setShowEventModal({ ...showEventModal, data: { ...showEventModal.data, cardType: 'yellow_card' } })}
-                            className={`flex flex-col items-center gap-3 p-6 rounded-3xl border-2 transition-all ${
-                              showEventModal.data.cardType === 'yellow_card' ? 'bg-yellow-50 border-yellow-400 shadow-lg shadow-yellow-400/10' : 'bg-slate-50 border-slate-100'
-                            }`}
-                          >
-                            <div className="w-8 h-12 bg-yellow-400 rounded-sm shadow-md" />
-                            <span className={`font-black text-[10px] uppercase tracking-widest ${showEventModal.data.cardType === 'yellow_card' ? 'text-yellow-700' : 'text-slate-400'}`}>Yellow</span>
-                          </button>
-                          <button 
-                            onClick={() => setShowEventModal({ ...showEventModal, data: { ...showEventModal.data, cardType: 'red_card' } })}
-                            className={`flex flex-col items-center gap-3 p-6 rounded-3xl border-2 transition-all ${
-                              showEventModal.data.cardType === 'red_card' ? 'bg-red-50 border-red-500 shadow-lg shadow-red-500/10' : 'bg-slate-50 border-slate-100'
-                            }`}
-                          >
-                            <div className="w-8 h-12 bg-red-500 rounded-sm shadow-md" />
-                            <span className={`font-black text-[10px] uppercase tracking-widest ${showEventModal.data.cardType === 'red_card' ? 'text-red-700' : 'text-slate-400'}`}>Red</span>
-                          </button>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => addEvent(showEventModal.data.playerId, showEventModal.data.cardType, showEventModal.side === 'A' ? match.teamAId : match.teamBId)}
-                        className={`w-full py-4 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg transition-all active:scale-95 ${
-                          showEventModal.data.cardType === 'yellow_card' ? 'bg-yellow-500 shadow-yellow-500/20 hover:bg-yellow-600' : 'bg-red-500 shadow-red-500/20 hover:bg-red-600'
-                        }`}
-                      >
-                        Assign Card
-                      </button>
-                    </>
-                  )}
-
-                  {showEventModal.type === 'substitution' && (
-                    <>
-                      <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Player In</p>
-                        <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-1">
-                          {(showEventModal.side === 'A' ? playersA : playersB)
-                            .filter(p => p.id !== showEventModal.data.playerOutId && !events.some(e => e.playerId === p.id && e.type === 'red_card'))
-                            .map((p) => (
-                            <button 
-                              key={p.id}
-                              onClick={() => setShowEventModal({ ...showEventModal, data: { ...showEventModal.data, playerInId: p.id } })}
-                              className={`flex items-center justify-between p-4 rounded-2xl border-2 transition-all text-left ${
-                                showEventModal.data.playerInId === p.id ? 'bg-emerald-50 border-emerald-500' : 'bg-slate-50 border-slate-100 hover:border-emerald-200'
-                              }`}
-                            >
-                              <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center">
-                                  <ArrowUp className="w-4 h-4 text-emerald-500" />
-                                </div>
-                                <span className="font-bold">{p.name.split(' (')[0].split(' #')[0]}</span>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <button
-                        disabled={!showEventModal.data.playerInId}
-                        onClick={() => {
-                          addEvent(showEventModal.data.playerOutId, 'substitution', showEventModal.side === 'A' ? match.teamAId : match.teamBId, { assistantId: showEventModal.data.playerInId });
-                        }}
-                        className="w-full py-4 bg-emerald-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:bg-emerald-600 transition-all active:scale-95 disabled:opacity-50"
-                      >
-                        Confirm Sub
                       </button>
                     </>
                   )}
@@ -2584,59 +4171,84 @@ function TeamDetailView({ tournament, team, onBack, isCreator }: { tournament: T
           <Users className="w-5 h-5 text-emerald-500" />
           The Squad
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {players.map((p, idx) => {
-            const stats = getPlayerStats(p.id);
-            return (
-              <div key={p.id} className="bg-white p-6 rounded-3xl border border-slate-200 flex items-center justify-between group hover:border-emerald-200 transition-all shadow-sm relative">
-                {isCreator && (
-                  <button 
-                    onClick={() => {
-                      if (window.confirm(`Delete ${p.name}?`)) {
-                        deleteDoc(doc(db, `tournaments/${tournament.id}/teams/${team.id}/players/${p.id}`));
-                      }
-                    }}
-                    className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10 shadow-lg"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                )}
-                <div className="flex items-center gap-3 md:gap-4 flex-1 min-w-0">
-                  <div className="flex flex-col items-center gap-1.5 shrink-0">
-                    <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-50 rounded-2xl flex items-center justify-center font-black text-slate-300 text-base md:text-lg group-hover:bg-emerald-50 group-hover:text-emerald-500 transition-colors">
-                      {idx + 1}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <div className="px-1 bg-emerald-50 rounded font-black text-emerald-600 text-[8px] md:text-[10px] flex items-center gap-0.5">
-                        <SoccerIcon className="w-2.5 h-2.5" /> {stats.goals}G
-                      </div>
-                      <div className="px-1 bg-blue-50 rounded font-black text-blue-600 text-[8px] md:text-[10px]">{stats.assists}A</div>
-                    </div>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-bold text-sm md:text-lg leading-tight truncate">
-                      {p.name.split(' (')[0].split(' #')[0]}
-                    </div>
-                    <div className="text-[9px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest">{p.position || 'Player'}</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 md:gap-4 shrink-0 bg-slate-50/50 p-2 md:p-0 rounded-xl md:bg-transparent">
-                  <div className="flex flex-col items-center">
-                    <span className="text-[8px] md:text-[10px] font-black text-slate-300">MP</span>
-                    <span className="font-black text-slate-400 text-sm md:text-lg tabular-nums">{stats.matchesPlayed}</span>
-                  </div>
-                  <div className="flex flex-col items-center">
-                    <div className="w-1.5 h-2 md:w-2 md:h-2.5 bg-yellow-400 rounded-[1px] mb-0.5 md:mb-1" />
-                    <span className="font-black text-yellow-600 text-sm md:text-lg tabular-nums">{stats.yellow}</span>
-                  </div>
-                  <div className="flex flex-col items-center">
-                    <div className="w-1.5 h-2 md:w-2 md:h-2.5 bg-red-500 rounded-[1px] mb-0.5 md:mb-1" />
-                    <span className="font-black text-red-500 text-sm md:text-lg tabular-nums">{stats.red}</span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+        <div className="bg-white rounded-[32px] border border-slate-200 overflow-hidden shadow-sm">
+          <div className="overflow-x-auto scrollbar-hide">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    <Hash className="w-3.5 h-3.5 mx-auto" />
+                  </th>
+                  <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    <UserIcon className="w-3.5 h-3.5" />
+                  </th>
+                  <th className="px-2 md:px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">
+                    <PitchIcon className="w-3.5 h-3.5 mx-auto" />
+                  </th>
+                  <th className="px-2 md:px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">
+                    <SoccerIcon className="w-3.5 h-3.5 mx-auto" />
+                  </th>
+                  <th className="hidden xs:table-cell px-2 md:px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">
+                    <HelpingHand className="w-3.5 h-3.5 mx-auto" />
+                  </th>
+                  <th className="px-2 md:px-3 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">
+                    <div className="w-2 h-3 bg-amber-400 rounded-[1px] mx-auto opacity-40" />
+                  </th>
+                  <th className="px-2 md:px-3 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">
+                    <div className="w-2 h-3 bg-red-500 rounded-[1px] mx-auto opacity-40" />
+                  </th>
+                  {isCreator && <th className="w-10 px-4"></th>}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {players.map((p, idx) => {
+                  const stats = getPlayerStats(p.id);
+                  return (
+                    <tr key={p.id} className="hover:bg-slate-50 transition-colors group">
+                      <td className="px-4 py-4">
+                        <span className="text-xs md:text-sm font-medium text-slate-400">{idx + 1}</span>
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="flex flex-col min-w-0">
+                          <span className="font-semibold text-slate-900 truncate text-xs md:text-base max-w-[100px] sm:max-w-none">{p.name.split(' (')[0].split(' #')[0]}</span>
+                          <span className="text-[9px] text-slate-400 font-medium uppercase tracking-widest">{p.position || 'Player'}</span>
+                        </div>
+                      </td>
+                      <td className="px-2 py-4 text-center">
+                        <span className={`text-xs md:text-sm font-medium ${stats.matchesPlayed > 0 ? 'text-slate-600' : 'text-slate-400'}`}>{stats.matchesPlayed}</span>
+                      </td>
+                      <td className="px-2 py-4 text-center">
+                        <span className={`text-xs md:text-sm font-medium ${stats.goals > 0 ? 'text-emerald-500' : 'text-slate-400'}`}>{stats.goals}</span>
+                      </td>
+                      <td className="hidden xs:table-cell px-2 py-4 text-center">
+                        <span className={`text-xs md:text-sm font-medium ${stats.assists > 0 ? 'text-blue-500' : 'text-slate-400'}`}>{stats.assists}</span>
+                      </td>
+                      <td className="px-2 py-4 text-center">
+                        <span className={`text-xs md:text-sm font-medium ${stats.yellow > 0 ? 'text-amber-500' : 'text-slate-400'}`}>{stats.yellow}</span>
+                      </td>
+                      <td className="px-2 py-4 text-center">
+                        <span className={`text-xs md:text-sm font-medium ${stats.red > 0 ? 'text-red-500' : 'text-slate-400'}`}>{stats.red}</span>
+                      </td>
+                      {isCreator && (
+                        <td className="px-2 py-4 text-right">
+                          <button 
+                            onClick={() => {
+                              if (window.confirm(`Delete ${p.name}?`)) {
+                                deleteDoc(doc(db, `tournaments/${tournament.id}/teams/${team.id}/players/${p.id}`));
+                              }
+                            }}
+                            className="p-1 text-slate-200 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 
@@ -2664,20 +4276,20 @@ function TeamDetailView({ tournament, team, onBack, isCreator }: { tournament: T
                   .map((p, idx) => (
                     <tr key={p.id} className="hover:bg-slate-50 transition-colors group">
                       <td className="px-6 py-4">
-                        <div className="font-bold">{p.name.split(' (')[0].split(' #')[0]}</div>
+                        <div className="font-medium text-slate-700">{p.name.split(' (')[0].split(' #')[0]}</div>
                       </td>
                       <td className="px-6 py-4 text-center">
-                        <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-black ${p.stats.goals > 0 ? 'bg-emerald-500 text-white' : 'text-slate-300'}`}>
+                        <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-medium ${p.stats.goals > 0 ? 'bg-emerald-500 text-white' : 'text-slate-400'}`}>
                           {p.stats.goals}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-center">
-                        <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-black ${p.stats.yellow > 0 ? 'bg-yellow-400 text-yellow-900' : 'text-slate-300'}`}>
+                        <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-medium ${p.stats.yellow > 0 ? 'bg-yellow-400 text-yellow-900' : 'text-slate-400'}`}>
                           {p.stats.yellow}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-center">
-                        <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-black ${p.stats.red > 0 ? 'bg-red-500 text-white' : 'text-slate-300'}`}>
+                        <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-medium ${p.stats.red > 0 ? 'bg-red-500 text-white' : 'text-slate-400'}`}>
                           {p.stats.red}
                         </span>
                       </td>
@@ -2844,11 +4456,12 @@ function DashboardView({ user, activeTab, onSelectTournament, onError }: { user:
         const qCareerEvents = query(collectionGroup(db, 'events'), where('userId', '==', user.uid));
         const qCareerPlayers = query(collectionGroup(db, 'players'), where('userId', '==', user.uid));
         
-        const [sTournaments, sTeams, sCareerEvents, sCareerPlayers] = await Promise.all([
+        const [sTournaments, sTeams, sCareerEvents, sCareerPlayers, sFollowDocs] = await Promise.all([
           getDocs(qTournaments),
           getDocs(qTeams),
           getDocs(qCareerEvents),
-          getDocs(qCareerPlayers)
+          getDocs(qCareerPlayers),
+          getDocs(collection(db, `users/${user.uid}/following`))
         ]);
 
         setUserTournaments(sTournaments.docs.map(d => ({ id: d.id, ...d.data() } as Tournament)));
@@ -2861,6 +4474,9 @@ function DashboardView({ user, activeTab, onSelectTournament, onError }: { user:
         careerPlayerData.forEach(p => {
           cTeamsMap[p.teamId] = { teamId: p.teamId, tournamentId: p.tournamentId, name: p.name };
           if (p.tournamentId) followIds.add(p.tournamentId);
+        });
+        sFollowDocs.docs.forEach(d => {
+          followIds.add(d.data().tournamentId);
         });
         setCareerTeams(Object.values(cTeamsMap));
 
@@ -2875,8 +4491,8 @@ function DashboardView({ user, activeTab, onSelectTournament, onError }: { user:
 
         const events = sCareerEvents.docs.map(d => d.data() as MatchEvent);
         setCareerStats({
-          goals: events.filter(e => e.type === 'goal' && e.goalType !== 'own_goal').length,
-          assists: events.filter(e => e.assistantUserId === user.uid && e.goalType !== 'own_goal').length,
+          goals: events.filter(e => e.type === 'goal' && e.goalType !== 'own_goal' && !e.isPenaltyShootout).length,
+          assists: events.filter(e => e.assistantUserId === user.uid && e.goalType !== 'own_goal' && !e.isPenaltyShootout).length,
           matches: sCareerPlayers.size,
           yellow: events.filter(e => e.type === 'yellow_card').length,
           red: events.filter(e => e.type === 'red_card').length
@@ -2948,12 +4564,12 @@ function DashboardView({ user, activeTab, onSelectTournament, onError }: { user:
                         className="group bg-white p-6 rounded-[32px] border border-slate-200 hover:border-emerald-200 shadow-sm hover:shadow-xl transition-all flex items-center justify-between"
                       >
                         <div className="flex items-center gap-4 cursor-pointer" onClick={() => onSelectTournament(t)}>
-                          <div className="w-14 h-14 bg-emerald-50 rounded-[20px] flex items-center justify-center group-hover:scale-110 transition-transform">
-                            <Trophy className="w-7 h-7 text-emerald-500" />
+                          <div className="w-12 h-12 md:w-14 md:h-14 bg-emerald-50 rounded-[18px] md:rounded-[20px] flex items-center justify-center group-hover:scale-110 transition-transform shrink-0">
+                            <Trophy className="w-6 h-6 md:w-7 md:h-7 text-emerald-500" />
                           </div>
-                          <div>
-                            <h4 className="font-black text-slate-800 uppercase tracking-tight text-lg">{t.name}</h4>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t.type.replace('_', ' ')} • {t.status}</p>
+                          <div className="min-w-0">
+                            <h4 className="font-black text-slate-800 uppercase tracking-tight text-sm md:text-lg truncate">{t.name}</h4>
+                            <p className="text-[9px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">{t.type.replace('_', ' ')} • {t.status}</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -3016,7 +4632,7 @@ function DashboardView({ user, activeTab, onSelectTournament, onError }: { user:
                             {team.logoURL ? <img src={team.logoURL} className="w-full h-full object-cover" /> : <Users className="text-slate-300" />}
                           </div>
                           <div>
-                            <h4 className="font-black text-slate-800 uppercase tracking-tight">{team.name}</h4>
+                            <h4 className="font-black text-slate-800 uppercase tracking-tight">{formatTeamName(team.name)}</h4>
                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">ID: {team.id.slice(0, 8)}</p>
                           </div>
                         </div>
@@ -3045,7 +4661,9 @@ function DashboardView({ user, activeTab, onSelectTournament, onError }: { user:
                     <p className="text-3xl font-black text-blue-500">{careerStats.assists}</p>
                   </div>
                   <div className="bg-white p-6 rounded-[32px] border border-slate-200 text-center shadow-sm">
-                    <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Matches</p>
+                    <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1 flex items-center justify-center gap-1">
+                      <PitchIcon className="w-3 h-3" /> Matches
+                    </p>
                     <p className="text-3xl font-black text-slate-900">{careerStats.matches}</p>
                   </div>
                   <div className="bg-white p-6 rounded-[32px] border border-slate-200 text-center shadow-sm">
@@ -3173,7 +4791,7 @@ function JoinTeamView({ tournamentId, teamId, user, onSuccess, onCancel }: { tou
         </div>
         <div className="space-y-2">
           <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Invitation to Join</p>
-          <h2 className="text-4xl font-black uppercase tracking-tighter">{team.name}</h2>
+          <h2 className="text-4xl font-black uppercase tracking-tighter">{formatTeamName(team.name)}</h2>
           <p className="text-slate-500 font-medium italic">in {tournament.name}</p>
         </div>
 

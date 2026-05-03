@@ -33,15 +33,18 @@ service cloud.firestore {
         return data.uid == userId &&
                data.email is string &&
                data.displayName is string &&
-               data.keys().hasAll(['uid', 'email', 'displayName']) &&
-               data.keys().size() <= 6;
+               data.keys().hasAll(['uid', 'email', 'displayName']);
       }
 
       allow get: if isSignedIn();
       allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
       allow create: if isOwner(userId) && isValidUser(incoming());
       allow update: if isOwner(userId) && isValidUser(incoming()) && 
-                    incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'role']);
+                    incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'role', 'updatedAt']);
+
+      match /following/{followId} {
+        allow read, write: if isOwner(userId);
+      }
     }
 
     // Tournament Rules

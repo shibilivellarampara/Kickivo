@@ -1,7 +1,7 @@
 export type TournamentType = 'league' | 'knockout' | 'league_playoff';
 export type TournamentStatus = 'upcoming' | 'live' | 'completed';
 export type MatchStatus = 'scheduled' | 'live' | 'finished';
-export type MatchEventType = 'goal' | 'yellow_card' | 'red_card' | 'substitution';
+export type MatchEventType = 'goal' | 'yellow_card' | 'red_card' | 'substitution' | 'half_time' | 'full_time' | 'aet' | 'penalty_kick' | 'end';
 
 export interface User {
   uid: string;
@@ -22,6 +22,11 @@ export interface Tournament {
   numberOfGroups?: number;
   advancingPerGroup?: number;
   maxTeams?: number;
+  matchesPerDay?: number;
+  homeAwayGroup?: boolean;
+  homeAwayKnockout?: boolean;
+  startTime?: string; // HH:mm
+  matchDuration?: number; // minutes
 }
 
 export interface Team {
@@ -32,6 +37,7 @@ export interface Team {
   creatorId?: string;
   tournamentId: string;
   group?: string; // e.g. "Group A", "Group B" etc.
+  shortName?: string;
 }
 
 export interface Match {
@@ -41,15 +47,28 @@ export interface Match {
   teamBId: string;
   scoreA: number;
   scoreB: number;
+  pensA?: number; // Penalty shootout score for team A
+  pensB?: number; // Penalty shootout score for team B
   status: MatchStatus;
   startTime?: string;
   group?: string; // Optional group name for matches
   timerStartTime?: any; // Timestamp
   elapsedTimeOnPause?: number; // in seconds
   isTimerRunning?: boolean;
+  manOfTheMatchId?: string;
+  round?: string; // e.g. "Semi-final", "Final"
+  placeholderA?: string; // e.g. "Winner QF1"
+  placeholderB?: string; // e.g. "Winner QF2"
+  successorMatchId?: string; // Match to move winner to
+  successorSide?: 'A' | 'B'; // Which side of successor match to populate
+  kickoff?: any; // Firestore Timestamp
+  leg?: 1 | 2;
+  tieId?: string;
+  createdAt?: any;
+  updatedAt?: any;
 }
 
-export type GoalType = 'open_goal' | 'header' | 'penalty' | 'own_goal';
+export type GoalType = 'open_goal' | 'header' | 'penalty' | 'own_goal' | 'free_kick';
 
 export interface Player {
   id: string;
@@ -79,4 +98,6 @@ export interface MatchEvent {
   teamId: string;
   minute: number;
   timestamp: string;
+  isPenaltyShootout?: boolean; // True if goal was scored during a penalty shootout (tiebreaker)
+  penaltyResult?: 'goal' | 'miss';
 }
