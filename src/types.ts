@@ -27,6 +27,7 @@ export interface Tournament {
   homeAwayKnockout?: boolean;
   startTime?: string; // HH:mm
   matchDuration?: number; // minutes
+  hasLosersFinal?: boolean;
 }
 
 export interface Team {
@@ -61,6 +62,8 @@ export interface Match {
   placeholderB?: string; // e.g. "Winner QF2"
   successorMatchId?: string; // Match to move winner to
   successorSide?: 'A' | 'B'; // Which side of successor match to populate
+  loserSuccessorMatchId?: string; // Match to move loser to (e.g. Losers Final)
+  loserSuccessorSide?: 'A' | 'B';
   kickoff?: any; // Firestore Timestamp
   leg?: 1 | 2;
   tieId?: string;

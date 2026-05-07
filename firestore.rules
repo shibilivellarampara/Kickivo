@@ -49,20 +49,28 @@ service cloud.firestore {
 
     // Tournament Rules
     match /tournaments/{tournamentId} {
+      function isTournamentCreator() {
+        return isSignedIn() && (
+          (exists(/databases/$(database)/documents/tournaments/$(tournamentId)) && 
+           get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.creatorId == request.auth.uid) ||
+           (incoming().creatorId == request.auth.uid)
+        );
+      }
+
       function isValidTournament(data) {
         return data.name is string && data.name.size() <= 100 &&
                data.type in ['league', 'knockout', 'league_playoff'] &&
-               data.status in ['upcoming', 'live', 'completed'] &&
+               data.status in ['upcoming', 'live', 'completed', 'finished'] &&
                data.creatorId == request.auth.uid;
       }
 
       allow read: if true;
       allow create: if isSignedIn() && isValidTournament(incoming());
-      allow update: if isSignedIn() && existing().creatorId == request.auth.uid && isValidTournament(incoming());
-      allow delete: if isSignedIn() && (
-        !('creatorId' in existing()) || 
-        existing().creatorId == request.auth.uid
-      );
+      allow update: if isSignedIn() && 
+                    existing().creatorId == request.auth.uid && 
+                    (incoming().status in ['upcoming', 'live', 'completed', 'finished']) &&
+                    incoming().creatorId == existing().creatorId;
+      allow delete: if isSignedIn() && existing().creatorId == request.auth.uid;
     }
 
     // Team Rules
@@ -85,9 +93,9 @@ service cloud.firestore {
     // Match Rules
     match /tournaments/{tournamentId}/matches/{matchId} {
       allow read: if true;
-      allow create: if isSignedIn() && 
+      allow create, update: if isSignedIn() && 
                       get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.creatorId == request.auth.uid;
-      allow update: if isSignedIn() && 
+      allow delete: if isSignedIn() && 
                       get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.creatorId == request.auth.uid;
     }
 
