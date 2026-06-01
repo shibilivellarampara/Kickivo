@@ -25,12 +25,14 @@ import {
   Star,
   Footprints,
   Clock,
-  CheckCircle2
+  CheckCircle2,
+  RotateCcw,
+  Unlock
 } from 'lucide-react';
 import { db, OperationType, handleFirestoreError } from '../../lib/firebase';
 import { Tournament, Match, Team, Player, MatchEvent, MatchEventType, GoalType } from '../../types';
 import { sortPlayersByPosition } from '../../utils/football';
-import { SoccerIcon } from '../common/Icons';
+import { SoccerIcon, AppLogo } from '../common/Icons';
 import { MatchTimer } from './MatchTimer';
 import { MatchEventLog } from './MatchEventLog';
 
@@ -64,6 +66,13 @@ export const MatchScoringView: React.FC<MatchScoringViewProps> = ({
   const [showFinishConfirm, setShowFinishConfirm] = useState(false);
   const [showLineupConfirm, setShowLineupConfirm] = useState(false);
   const [isFinishing, setIsFinishing] = useState(false);
+  const [confirmModal, setConfirmModal] = useState<{
+    title: string;
+    message: string;
+    actionLabel: string;
+    isDangerous?: boolean;
+    onConfirm: () => void;
+  } | null>(null);
 
   // Helper to remove undefined values before Firestore writes
   const cleanObj = (obj: any) => {
@@ -183,35 +192,41 @@ export const MatchScoringView: React.FC<MatchScoringViewProps> = ({
     const eventToDelete = events.find(e => e.id === eventId);
     if (!eventToDelete) return;
 
-    if (!window.confirm("Delete this event?")) return;
+    setConfirmModal({
+      title: "Delete Event",
+      message: "Are you sure you want to delete this event from the timeline? This will update the match score accordingly.",
+      actionLabel: "Delete",
+      isDangerous: true,
+      onConfirm: async () => {
+        try {
+          const matchRef = doc(db, `tournaments/${tournament.id}/matches/${match.id}`);
+          const eventRef = doc(db, `tournaments/${tournament.id}/matches/${match.id}/events/${eventId}`);
 
-    try {
-      const matchRef = doc(db, `tournaments/${tournament.id}/matches/${match.id}`);
-      const eventRef = doc(db, `tournaments/${tournament.id}/matches/${match.id}/events/${eventId}`);
+          if (eventToDelete.type === 'goal' || (eventToDelete.type === 'penalty_kick' && eventToDelete.penaltyResult === 'goal')) {
+            const isTeamA = eventToDelete.teamId === match.teamAId;
+            const isOwnGoal = eventToDelete.type === 'goal' && eventToDelete.goalType === 'own_goal';
+            const isPenaltyShootout = eventToDelete.isPenaltyShootout;
+            
+            if (isPenaltyShootout) {
+              const field = isTeamA ? 'pensA' : 'pensB';
+              await updateDoc(matchRef, {
+                [field]: Math.max(0, (liveMatch[field] || 0) - 1)
+              });
+            } else {
+              const teamToDecrementIsA = isOwnGoal ? !isTeamA : isTeamA;
+              await updateDoc(matchRef, {
+                [teamToDecrementIsA ? 'scoreA' : 'scoreB']: Math.max(0, (teamToDecrementIsA ? liveMatch.scoreA : liveMatch.scoreB) - 1)
+              });
+            }
+          }
 
-      if (eventToDelete.type === 'goal' || (eventToDelete.type === 'penalty_kick' && eventToDelete.penaltyResult === 'goal')) {
-        const isTeamA = eventToDelete.teamId === match.teamAId;
-        const isOwnGoal = eventToDelete.type === 'goal' && eventToDelete.goalType === 'own_goal';
-        const isPenaltyShootout = eventToDelete.isPenaltyShootout;
-        
-        if (isPenaltyShootout) {
-          const field = isTeamA ? 'pensA' : 'pensB';
-          await updateDoc(matchRef, {
-            [field]: Math.max(0, (liveMatch[field] || 0) - 1)
-          });
-        } else {
-          const teamToDecrementIsA = isOwnGoal ? !isTeamA : isTeamA;
-          await updateDoc(matchRef, {
-            [teamToDecrementIsA ? 'scoreA' : 'scoreB']: Math.max(0, (teamToDecrementIsA ? liveMatch.scoreA : liveMatch.scoreB) - 1)
-          });
+          await deleteDoc(eventRef);
+          notify('Event deleted and score updated.');
+        } catch (err) {
+          handleFirestoreError(err, OperationType.DELETE, `tournaments/${tournament.id}/matches/${match.id}/events/${eventId}`);
         }
       }
-
-      await deleteDoc(eventRef);
-      notify('Event deleted');
-    } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `tournaments/${tournament.id}/matches/${match.id}/events/${eventId}`);
-    }
+    });
   };
 
   const addPenaltyKick = async (playerId: string, teamId: string, result: 'goal' | 'miss') => {
@@ -444,6 +459,143 @@ export const MatchScoringView: React.FC<MatchScoringViewProps> = ({
     }
   };
 
+  const reopenMatch = async () => {
+    if (!isCreator || isFinishing) return;
+    setConfirmModal({
+      title: "Reopen Match",
+      message: "Are you sure you want to reopen this match? This will change the status back to 'live' and allow you to edit/delete timeline events or log new events.",
+      actionLabel: "Reopen Live",
+      onConfirm: async () => {
+        setIsFinishing(true);
+        try {
+          const matchRef = doc(db, `tournaments/${tournament.id}/matches/${match.id}`);
+          await updateDoc(matchRef, {
+            status: 'live',
+            updatedAt: serverTimestamp()
+          });
+
+          // If this is the Final or the tournament is completed, reopen the tournament
+          if (liveMatch.round === 'Final' || tournament.status === 'completed') {
+            const tournamentRef = doc(db, `tournaments/${tournament.id}`);
+            await updateDoc(tournamentRef, {
+              status: 'live',
+              updatedAt: serverTimestamp()
+            });
+          }
+
+          // Clear successor team placement fields in knockout matches because the final winner is no longer determined
+          if (liveMatch.successorMatchId) {
+            const successorIds = liveMatch.successorMatchId.split(',');
+            for (const sId of successorIds) {
+              const successorRef = doc(db, `tournaments/${tournament.id}/matches/${sId.trim()}`);
+              const successorMatch = matches.find(m => m.id === sId.trim());
+              if (successorMatch) {
+                const side = liveMatch.successorSide;
+                const finalSide = (successorMatch.leg === 2) ? (side === 'A' ? 'teamBId' : 'teamAId') : (side === 'A' ? 'teamAId' : 'teamBId');
+                await updateDoc(successorRef, { [finalSide]: "" });
+              }
+            }
+          }
+          if (liveMatch.loserSuccessorMatchId) {
+            const successorIds = liveMatch.loserSuccessorMatchId.split(',');
+            for (const sId of successorIds) {
+              const successorRef = doc(db, `tournaments/${tournament.id}/matches/${sId.trim()}`);
+              const successorMatch = matches.find(m => m.id === sId.trim());
+              if (successorMatch) {
+                const side = liveMatch.loserSuccessorSide;
+                const finalSide = (successorMatch.leg === 2) ? (side === 'A' ? 'teamBId' : 'teamAId') : (side === 'A' ? 'teamAId' : 'teamBId');
+                await updateDoc(successorRef, { [finalSide]: "" });
+              }
+            }
+          }
+
+          notify('Match reopened! You can edit, add, or delete events now.');
+        } catch (err) {
+          handleFirestoreError(err, OperationType.UPDATE, `tournaments/${tournament.id}/matches/${match.id}`);
+        } finally {
+          setIsFinishing(false);
+          setConfirmModal(null);
+        }
+      }
+    });
+  };
+
+  const resetMatch = async () => {
+    if (!isCreator || isFinishing) return;
+    setConfirmModal({
+      title: "Reset Match",
+      message: "CRITICAL WARNING: This will DELETE ALL logged events (goals, cards, substitutions) for this match and reset the score to 0-0. This action is irreversible. Proceed?",
+      actionLabel: "Reset Match",
+      isDangerous: true,
+      onConfirm: async () => {
+        setIsFinishing(true);
+        try {
+          // 1. Delete all match events sequentially
+          for (const event of events) {
+            await deleteDoc(doc(db, `tournaments/${tournament.id}/matches/${match.id}/events/${event.id}`));
+          }
+
+          // 2. Reset match document fields back to scheduled state
+          const matchRef = doc(db, `tournaments/${tournament.id}/matches/${match.id}`);
+          await updateDoc(matchRef, {
+            status: 'scheduled',
+            scoreA: 0,
+            scoreB: 0,
+            pensA: 0,
+            pensB: 0,
+            manOfTheMatchId: '',
+            isTimerRunning: false,
+            elapsedTimeOnPause: 0,
+            timerStartTime: null,
+            updatedAt: serverTimestamp()
+          });
+
+          // 3. If this was the Final or the tournament is completed, reopen the tournament
+          if (liveMatch.round === 'Final' || tournament.status === 'completed') {
+            const tournamentRef = doc(db, `tournaments/${tournament.id}`);
+            await updateDoc(tournamentRef, {
+              status: 'live',
+              updatedAt: serverTimestamp()
+            });
+          }
+
+          // 4. Clear successor team placement fields in knockout matches because the winner is no longer determined
+          if (liveMatch.successorMatchId) {
+            const successorIds = liveMatch.successorMatchId.split(',');
+            for (const sId of successorIds) {
+              const successorRef = doc(db, `tournaments/${tournament.id}/matches/${sId.trim()}`);
+              const successorMatch = matches.find(m => m.id === sId.trim());
+              if (successorMatch) {
+                const side = liveMatch.successorSide;
+                const finalSide = (successorMatch.leg === 2) ? (side === 'A' ? 'teamBId' : 'teamAId') : (side === 'A' ? 'teamAId' : 'teamBId');
+                await updateDoc(successorRef, { [finalSide]: "" });
+              }
+            }
+          }
+          if (liveMatch.loserSuccessorMatchId) {
+            const successorIds = liveMatch.loserSuccessorMatchId.split(',');
+            for (const sId of successorIds) {
+              const successorRef = doc(db, `tournaments/${tournament.id}/matches/${sId.trim()}`);
+              const successorMatch = matches.find(m => m.id === sId.trim());
+              if (successorMatch) {
+                const side = liveMatch.loserSuccessorSide;
+                const finalSide = (successorMatch.leg === 2) ? (side === 'A' ? 'teamBId' : 'teamAId') : (side === 'A' ? 'teamAId' : 'teamBId');
+                await updateDoc(successorRef, { [finalSide]: "" });
+              }
+            }
+          }
+
+          notify('Match has been fully reset to scheduled state!');
+        } catch (err) {
+          handleFirestoreError(err, OperationType.UPDATE, `tournaments/${tournament.id}/matches/${match.id}`);
+        } finally {
+          setIsFinishing(false);
+          setConfirmModal(null);
+        }
+      }
+    });
+  };
+
   const getSuggestedMotM = () => {
     const scores: Record<string, number> = {};
     events.forEach(e => {
@@ -469,12 +621,6 @@ export const MatchScoringView: React.FC<MatchScoringViewProps> = ({
     };
   }, [events]);
 
-  const nextMilestone = useMemo(() => {
-    if (!milestonesValues.hasHT) return 'half_time';
-    if (!milestonesValues.hasFT) return 'full_time';
-    return 'end';
-  }, [milestonesValues]);
-
   const redCardedPlayerIds = useMemo(() => new Set(events.filter(e => e.type === 'red_card').map(e => e.playerId)), [events]);
   const substitutedOutPlayerIds = useMemo(() => new Set(events.filter(e => e.type === 'substitution').map(e => e.playerId)), [events]);
   const penaltyTakerIds = useMemo(() => new Set(events.filter(e => e.type === 'penalty_kick').map(e => e.playerId)), [events]);
@@ -484,17 +630,27 @@ export const MatchScoringView: React.FC<MatchScoringViewProps> = ({
   const suggestedPlayer = allPlayers.find(p => p.id === getSuggestedMotM());
 
   return (
-    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-12 pb-24">
-      <div className="flex items-center justify-between">
-        <button onClick={onBack} className="flex items-center gap-2 text-slate-400 font-semibold hover:text-slate-900 transition-colors uppercase tracking-widest text-[9px]">
+    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8 pb-24 max-w-5xl mx-auto">
+      {/* Top Navigation Bar */}
+      <div className="flex items-center justify-between bg-white/60 backdrop-blur-md px-6 py-4 rounded-3xl border border-slate-100 shadow-sm">
+        <button onClick={onBack} className="flex items-center gap-2 text-slate-500 font-bold hover:text-emerald-600 transition-colors uppercase tracking-widest text-[10px]">
           &larr; Back to Tournament
         </button>
+        <div className="flex items-center gap-2">
+          <AppLogo className="w-6 h-6 rounded-lg shadow-sm" />
+          <span className="font-black text-sm tracking-tighter uppercase italic text-slate-900">
+            Kickivo <span className="text-emerald-500">Facts</span>
+          </span>
+        </div>
       </div>
 
-      <div className="bg-white text-slate-900 rounded-[40px] p-6 md:p-10 shadow-[0_30px_100px_rgba(0,0,0,0.08)] relative overflow-hidden border border-black/5">
+      {/* Main Scoring Card */}
+      <div className="bg-white text-slate-900 rounded-[40px] p-6 md:p-10 shadow-[0_30px_100px_rgba(0,0,0,0.06)] relative overflow-hidden border border-black/5">
         <div className="absolute top-0 left-0 w-full h-1 bg-emerald-500" />
         <div className="flex flex-col items-center gap-8 relative z-10">
-          <div id="match-control-panel" className="flex flex-col items-center gap-6 w-full py-4 relative">
+          
+          {/* Match Live Badge */}
+          <div className="flex justify-center mt-2">
             <div className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] shadow-sm transition-all duration-500 ${
               liveMatch.status === 'live' 
                 ? 'bg-emerald-500 text-white animate-pulse' 
@@ -508,76 +664,177 @@ export const MatchScoringView: React.FC<MatchScoringViewProps> = ({
                   ? (milestonesValues.hasPens ? 'PEN' : milestonesValues.hasET ? 'AET' : 'FT') 
                   : 'Scheduled'}
             </div>
-
-            {liveMatch.status === 'live' && (
-              <div className="flex flex-col items-center gap-8 w-full max-w-sm justify-center">
-                <MatchTimer 
-                  match={liveMatch} 
-                  isCreator={isCreator} 
-                  tournament={tournament} 
-                />
-              </div>
-            )}
-            
-            {isCreator && liveMatch.status !== 'finished' && (
-              <div className="flex flex-col items-center gap-4 mt-2">
-              </div>
-            )}
           </div>
 
-          <div className="flex items-center justify-center gap-6 md:gap-12 w-full max-w-5xl mx-auto py-8">
+          {/* Primary Score Board Container */}
+          <div className="grid grid-cols-3 items-center w-full max-w-4xl mx-auto gap-2 md:gap-8 py-4">
             {/* Team A */}
-            <div className="flex flex-col items-center gap-4">
-               <div className="w-20 h-20 md:w-36 md:h-36 bg-slate-50 rounded-[28px] md:rounded-[48px] flex items-center justify-center border border-black/5 shadow-inner shrink-0 group hover:scale-105 transition-transform duration-500">
-                 {teamA?.logoURL ? <img src={teamA.logoURL} className="w-12 h-12 md:w-24 md:h-24 object-contain filter drop-shadow-lg" alt="" /> : <Users className="w-10 h-10 md:w-20 md:h-20 text-slate-200" />}
+            <div className="flex flex-col items-center text-center justify-center">
+               <div className="w-16 h-16 md:w-28 md:h-28 bg-slate-50 rounded-2xl md:rounded-[36px] flex items-center justify-center border border-slate-100 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.05),2px_4px_12px_rgba(0,0,0,0.04)] shrink-0 hover:scale-[1.03] transition-all duration-300">
+                 {teamA?.logoURL ? <img src={teamA.logoURL} className="w-10 h-10 md:w-18 md:h-18 object-contain filter drop-shadow-md" alt={teamA.name} /> : <Users className="w-8 h-8 md:w-14 md:h-14 text-slate-300" />}
                </div>
-               <h2 className={`text-xs md:text-xl font-black tracking-tight uppercase truncate max-w-[120px] md:max-w-none ${liveMatch.status === 'finished' && liveMatch.scoreA > liveMatch.scoreB ? 'text-emerald-500' : 'text-slate-900'}`}>
+               <h2 
+                 title={teamA?.name}
+                 className={`text-[11px] md:text-lg font-black tracking-tight uppercase truncate max-w-[110px] md:max-w-none mt-3 leading-tight ${liveMatch.status === 'finished' && liveMatch.scoreA > liveMatch.scoreB ? 'text-emerald-500' : 'text-slate-900'}`}
+               >
                  {teamA?.name}
                </h2>
-               {isCreator && liveMatch.status !== 'finished' && (
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => setShowEventModal({ side: 'A', type: 'goal', step: 1 })} className="w-8 h-8 md:w-12 md:h-12 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg"><SoccerIcon className="w-4 h-4 md:w-6 md:h-6 text-white" /></button>
-                    <button onClick={() => setShowEventModal({ side: 'A', type: 'yellow_card', step: 1 })} className="w-8 h-8 md:w-12 md:h-12 bg-amber-400 rounded-xl flex items-center justify-center shadow-lg"><Shield className="w-4 h-4 md:w-6 md:h-6 text-white" /></button>
-                  </div>
-               )}
             </div>
 
-            {/* Score Center */}
+            {/* Score Center (Primary Visual Focus) */}
             <div className="flex flex-col items-center justify-center">
-              <div className="flex items-center gap-4 md:gap-8 bg-white px-8 py-4 md:px-12 md:py-8 rounded-[40px] border border-black/5 shadow-xl">
+              <div className="bg-gradient-to-b from-slate-50 to-slate-100/50 px-5 py-3 md:px-10 md:py-6 rounded-2xl md:rounded-[32px] border border-slate-200/60 shadow-[3px_6px_16px_rgba(0,0,0,0.03),inset_0px_1px_0px_rgba(255,255,255,0.8)] flex items-center gap-3 md:gap-6">
                 <div className="flex flex-col items-center">
-                  <span className={`text-5xl md:text-9xl font-black tabular-nums tracking-tighter ${liveMatch.status === 'finished' && liveMatch.scoreA > liveMatch.scoreB ? 'text-emerald-500' : 'text-slate-900'}`}>{liveMatch.scoreA}</span>
-                  {(liveMatch.pensA !== undefined || liveMatch.pensB !== undefined) && <span className="text-[10px] md:text-xl font-black text-amber-500">({liveMatch.pensA || 0})</span>}
+                  <motion.span 
+                    key={`scoreA-${liveMatch.scoreA}`}
+                    initial={{ scale: 1 }}
+                    animate={{ scale: [1, 1.25, 1] }}
+                    transition={{ duration: 0.35, ease: "easeInOut" }}
+                    className={`text-3xl md:text-6xl font-black tabular-nums tracking-tighter block ${liveMatch.status === 'finished' && liveMatch.scoreA > liveMatch.scoreB ? 'text-emerald-500' : 'text-slate-900'}`}
+                  >
+                    {liveMatch.scoreA}
+                  </motion.span>
+                  {(liveMatch.pensA !== undefined || liveMatch.pensB !== undefined) && <span className="text-[9px] md:text-xs font-black text-amber-500 bg-amber-50 px-2 py-0.5 rounded-full mt-1">({liveMatch.pensA || 0})</span>}
                 </div>
-                <span className="text-3xl md:text-7xl font-black text-slate-100">:</span>
+                <span className="text-xl md:text-3xl font-extrabold text-slate-300">:</span>
                 <div className="flex flex-col items-center">
-                  <span className={`text-5xl md:text-9xl font-black tabular-nums tracking-tighter ${liveMatch.status === 'finished' && liveMatch.scoreB > liveMatch.scoreA ? 'text-emerald-500' : 'text-slate-900'}`}>{liveMatch.scoreB}</span>
-                  {(liveMatch.pensA !== undefined || liveMatch.pensB !== undefined) && <span className="text-[10px] md:text-xl font-black text-amber-500">({liveMatch.pensB || 0})</span>}
+                  <motion.span 
+                    key={`scoreB-${liveMatch.scoreB}`}
+                    initial={{ scale: 1 }}
+                    animate={{ scale: [1, 1.25, 1] }}
+                    transition={{ duration: 0.35, ease: "easeInOut" }}
+                    className={`text-3xl md:text-6xl font-black tabular-nums tracking-tighter block ${liveMatch.status === 'finished' && liveMatch.scoreB > liveMatch.scoreA ? 'text-emerald-500' : 'text-slate-900'}`}
+                  >
+                    {liveMatch.scoreB}
+                  </motion.span>
+                  {(liveMatch.pensA !== undefined || liveMatch.pensB !== undefined) && <span className="text-[9px] md:text-xs font-black text-amber-500 bg-amber-50 px-2 py-0.5 rounded-full mt-1">({liveMatch.pensB || 0})</span>}
                 </div>
               </div>
             </div>
 
             {/* Team B */}
-            <div className="flex flex-col items-center gap-4">
-               <div className="w-20 h-20 md:w-36 md:h-36 bg-slate-50 rounded-[28px] md:rounded-[48px] flex items-center justify-center border border-black/5 shadow-inner shrink-0 group hover:scale-105 transition-transform duration-500">
-                 {teamB?.logoURL ? <img src={teamB.logoURL} className="w-12 h-12 md:w-24 md:h-24 object-contain filter drop-shadow-lg" alt="" /> : <Users className="w-10 h-10 md:w-20 md:h-20 text-slate-200" />}
+            <div className="flex flex-col items-center text-center justify-center">
+               <div className="w-16 h-16 md:w-28 md:h-28 bg-slate-50 rounded-2xl md:rounded-[36px] flex items-center justify-center border border-slate-100 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.05),2px_4px_12px_rgba(0,0,0,0.04)] shrink-0 hover:scale-[1.03] transition-all duration-300">
+                 {teamB?.logoURL ? <img src={teamB.logoURL} className="w-10 h-10 md:w-18 md:h-18 object-contain filter drop-shadow-md" alt={teamB.name} /> : <Users className="w-8 h-8 md:w-14 md:h-14 text-slate-300" />}
                </div>
-               <h2 className={`text-xs md:text-xl font-black tracking-tight uppercase truncate max-w-[120px] md:max-w-none ${liveMatch.status === 'finished' && liveMatch.scoreB > liveMatch.scoreA ? 'text-emerald-500' : 'text-slate-900'}`}>
+               <h2 
+                 title={teamB?.name}
+                 className={`text-[11px] md:text-lg font-black tracking-tight uppercase truncate max-w-[110px] md:max-w-none mt-3 leading-tight ${liveMatch.status === 'finished' && liveMatch.scoreB > liveMatch.scoreA ? 'text-emerald-500' : 'text-slate-900'}`}
+               >
                  {teamB?.name}
                </h2>
-               {isCreator && liveMatch.status !== 'finished' && (
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => setShowEventModal({ side: 'B', type: 'goal', step: 1 })} className="w-8 h-8 md:w-12 md:h-12 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg"><SoccerIcon className="w-4 h-4 md:w-6 md:h-6 text-white" /></button>
-                    <button onClick={() => setShowEventModal({ side: 'B', type: 'yellow_card', step: 1 })} className="w-8 h-8 md:w-12 md:h-12 bg-amber-400 rounded-xl flex items-center justify-center shadow-lg"><Shield className="w-4 h-4 md:w-6 md:h-6 text-white" /></button>
-                  </div>
-               )}
             </div>
           </div>
+
+          {/* Timer panel BELOW score and team names */}
+          {liveMatch.status === 'live' && (
+            <div className="flex flex-col items-center justify-center w-full max-w-sm">
+              <MatchTimer 
+                match={liveMatch} 
+                isCreator={isCreator} 
+                tournament={tournament} 
+              />
+            </div>
+          )}
+
+          {/* Log Event Actions */}
+          {isCreator && liveMatch.status !== 'finished' && (
+            <div className="w-full max-w-4xl bg-slate-50/50 rounded-3xl p-6 border border-slate-100 shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)]">
+              <div className="text-center mb-4">
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.25em]">Quick Log Event Console</span>
+              </div>
+              <div className="grid grid-cols-2 gap-6 items-stretch">
+                {/* Team A Logging */}
+                <div className="flex flex-col items-center gap-3 border-r border-slate-200/60 pr-3 md:pr-6">
+                  <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest truncate max-w-[120px] md:max-w-none">
+                    {teamA?.name}
+                  </p>
+                  <div className="flex items-center justify-center gap-1.5 md:gap-3">
+                    <button 
+                      aria-label="Log goal"
+                      title="Goal"
+                      onClick={() => setShowEventModal({ side: 'A', type: 'goal', step: 1 })} 
+                      className="flex items-center gap-1.5 px-3 py-2 md:px-5 md:py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl shadow-md hover:shadow-emerald-500/25 active:scale-95 hover:scale-[1.03] transition-all"
+                    >
+                      <SoccerIcon className="w-3.5 h-3.5 md:w-5 md:h-5 text-white" />
+                      <span className="text-[9px] font-extrabold uppercase tracking-widest hidden sm:inline">Goal</span>
+                    </button>
+                    <button 
+                      aria-label="Log card"
+                      title="Card"
+                      onClick={() => setShowEventModal({ side: 'A', type: 'yellow_card', step: 0 })} 
+                      className="flex items-center gap-1.5 px-3 py-2 md:px-5 md:py-3.5 bg-[linear-gradient(135deg,#f59e0b_50%,#ef4444_50%)] hover:brightness-110 text-white rounded-xl shadow-md hover:shadow-orange-500/25 active:scale-95 hover:scale-[1.03] transition-all"
+                    >
+                      <Shield className="w-3.5 h-3.5 md:w-5 md:h-5 text-white" />
+                      <span className="text-[9px] font-extrabold uppercase tracking-widest hidden sm:inline">Card</span>
+                    </button>
+                    <button 
+                      aria-label="Log substitution"
+                      title="Substitution"
+                      onClick={() => setShowEventModal({ side: 'A', type: 'substitution', step: 1 })} 
+                      className="flex items-center gap-1.5 px-3 py-2 md:px-5 md:py-3.5 bg-blue-500 hover:bg-blue-600 text-white rounded-xl shadow-md hover:shadow-blue-500/25 active:scale-95 hover:scale-[1.03] transition-all"
+                    >
+                      <ArrowLeftRight className="w-3.5 h-3.5 md:w-5 md:h-5 text-white" />
+                      <span className="text-[9px] font-extrabold uppercase tracking-widest hidden sm:inline">Sub</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Team B Logging */}
+                <div className="flex flex-col items-center gap-3 pl-3 md:pl-6">
+                  <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest truncate max-w-[120px] md:max-w-none">
+                    {teamB?.name}
+                  </p>
+                  <div className="flex items-center justify-center gap-1.5 md:gap-3">
+                    <button 
+                      aria-label="Log goal"
+                      title="Goal"
+                      onClick={() => setShowEventModal({ side: 'B', type: 'goal', step: 1 })} 
+                      className="flex items-center gap-1.5 px-3 py-2 md:px-5 md:py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl shadow-md hover:shadow-emerald-500/25 active:scale-95 hover:scale-[1.03] transition-all"
+                    >
+                      <SoccerIcon className="w-3.5 h-3.5 md:w-5 md:h-5 text-white" />
+                      <span className="text-[9px] font-extrabold uppercase tracking-widest hidden sm:inline">Goal</span>
+                    </button>
+                    <button 
+                      aria-label="Log card"
+                      title="Card"
+                      onClick={() => setShowEventModal({ side: 'B', type: 'yellow_card', step: 0 })} 
+                      className="flex items-center gap-1.5 px-3 py-2 md:px-5 md:py-3.5 bg-[linear-gradient(135deg,#f59e0b_50%,#ef4444_50%)] hover:brightness-110 text-white rounded-xl shadow-md hover:shadow-orange-500/25 active:scale-95 hover:scale-[1.03] transition-all"
+                    >
+                      <Shield className="w-3.5 h-3.5 md:w-5 md:h-5 text-white" />
+                      <span className="text-[9px] font-extrabold uppercase tracking-widest hidden sm:inline">Card</span>
+                    </button>
+                    <button 
+                      aria-label="Log substitution"
+                      title="Substitution"
+                      onClick={() => setShowEventModal({ side: 'B', type: 'substitution', step: 1 })} 
+                      className="flex items-center gap-1.5 px-3 py-2 md:px-5 md:py-3.5 bg-blue-500 hover:bg-blue-600 text-white rounded-xl shadow-md hover:shadow-blue-500/25 active:scale-95 hover:scale-[1.03] transition-all"
+                    >
+                      <ArrowLeftRight className="w-3.5 h-3.5 md:w-5 md:h-5 text-white" />
+                      <span className="text-[9px] font-extrabold uppercase tracking-widest hidden sm:inline">Sub</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Milestone & State Controls */}
+        {/* Match Timeline section */}
+        <MatchEventLog 
+          events={events} 
+          teamA={teamA} 
+          teamB={teamB} 
+          playersA={playersA} 
+          playersB={playersB} 
+          isCreator={isCreator} 
+          onUndo={undoEvent}
+          match={liveMatch}
+        />
+
+        {/* Milestone & State Controls (Cta at bottom of the panel) */}
         {isCreator && liveMatch.status !== 'finished' && (
-          <div className="max-w-4xl mx-auto flex flex-col items-center gap-6 py-12 border-y border-slate-50">
+          <div className="max-w-4xl mx-auto flex flex-col items-center gap-6 py-8 border-t border-slate-50 mt-12">
             <div className="w-full max-w-sm">
               {liveMatch.status === 'scheduled' ? (
                 <button 
@@ -630,22 +887,21 @@ export const MatchScoringView: React.FC<MatchScoringViewProps> = ({
                       <span className="relative z-10">Finish Match</span>
                     </button>
                   )}
+
+                  {milestonesValues.hasPens && liveMatch.status !== 'finished' && !isPenaltyShootoutMode && (
+                    <button
+                      onClick={() => setIsPenaltyShootoutMode(true)}
+                      className="w-full max-w-sm mx-auto px-6 py-3 bg-amber-500 text-white rounded-[24px] font-black text-[9px] uppercase tracking-[0.4em] flex items-center justify-center gap-3"
+                    >
+                      <Trophy className="w-4 h-4" />
+                      Open Penalty Panel
+                    </button>
+                  )}
                 </div>
               )}
             </div>
           </div>
         )}
-
-        <MatchEventLog 
-          events={events} 
-          teamA={teamA} 
-          teamB={teamB} 
-          playersA={playersA} 
-          playersB={playersB} 
-          isCreator={isCreator} 
-          onUndo={undoEvent}
-          match={liveMatch}
-        />
 
         {liveMatch.status === 'finished' && (
           <div className="mt-16 max-w-4xl mx-auto border-t border-slate-100 pt-16 space-y-16">
@@ -704,6 +960,43 @@ export const MatchScoringView: React.FC<MatchScoringViewProps> = ({
                 </div>
               ) : <p className="text-slate-300 font-bold italic text-sm">Not yet awarded</p>}
             </div>
+
+            {isCreator && (
+              <div id="admin-match-controls" className="w-full max-w-md bg-slate-50/50 border border-slate-150 rounded-[32px] p-6 text-center space-y-4 shadow-sm mt-8">
+                <div className="flex flex-col items-center">
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.25em] mb-1">
+                    Tournament Admin Controls
+                  </span>
+                  <h4 className="text-xs font-black text-slate-700 uppercase tracking-tight">
+                    Edit or Reset Match Result
+                  </h4>
+                  <p className="text-slate-400 text-[10px] max-w-[280px] mt-1 leading-normal mx-auto font-bold uppercase tracking-wide">
+                    Correct mistakes or start again
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <button 
+                    onClick={reopenMatch} 
+                    disabled={isFinishing}
+                    title="Allow editing events on the timeline"
+                    className="flex items-center justify-center gap-2 bg-white hover:bg-slate-100/80 border border-slate-200 text-slate-700 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 disabled:opacity-50 transition-all shadow-sm cursor-pointer"
+                  >
+                    <Unlock className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>Edit Match</span>
+                  </button>
+                  <button 
+                    onClick={resetMatch} 
+                    disabled={isFinishing}
+                    title="Delete all match events and reset result to 0-0"
+                    className="flex items-center justify-center gap-2 bg-rose-50 hover:bg-rose-100 border border-rose-100 text-rose-600 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 disabled:opacity-50 transition-all shadow-sm cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-rose-500" />
+                    <span>Reset Match</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -711,6 +1004,33 @@ export const MatchScoringView: React.FC<MatchScoringViewProps> = ({
       </div>
 
       <AnimatePresence>
+        {confirmModal && (
+          <div key="custom-confirm-modal" className="fixed inset-0 z-[700] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setConfirmModal(null)} className="absolute inset-0 bg-slate-900/80 backdrop-blur-md" />
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-white w-full max-w-sm rounded-[32px] p-8 shadow-2xl">
+              <button onClick={() => setConfirmModal(null)} className="absolute right-6 top-6 p-2 text-slate-300 hover:text-slate-600 transition-colors"><X className="w-5 h-5" /></button>
+              
+              <div className="text-center mb-6">
+                <div className={`w-12 h-12 ${confirmModal.isDangerous ? 'bg-rose-50 text-rose-500 border-rose-100' : 'bg-slate-50 text-emerald-500 border-slate-100'} border rounded-2xl flex items-center justify-center mx-auto mb-4 font-bold text-xl`}>
+                  {confirmModal.isDangerous ? '⚠️' : '⚽'}
+                </div>
+                <h3 className="text-xl font-black italic uppercase tracking-tighter text-slate-900">{confirmModal.title}</h3>
+                <p className="text-slate-500 text-xs mt-3 leading-relaxed font-medium">{confirmModal.message}</p>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <button 
+                  onClick={confirmModal.onConfirm}
+                  className={`w-full ${confirmModal.isDangerous ? 'bg-rose-500 hover:bg-rose-600 shadow-rose-500/20' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20'} text-white font-black py-4 rounded-2xl shadow-xl active:scale-95 transition-all text-[10px] uppercase tracking-[0.2em]`}
+                >
+                  {confirmModal.actionLabel}
+                </button>
+                <button onClick={() => setConfirmModal(null)} className="w-full py-3.5 font-bold text-slate-400 text-[10px] uppercase tracking-widest hover:text-slate-600 transition-colors">Cancel</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {isPenaltyShootoutMode && (
           <div className="fixed inset-0 z-[600] flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsPenaltyShootoutMode(false)} className="absolute inset-0 bg-slate-900/90 backdrop-blur-md" />
@@ -785,7 +1105,34 @@ export const MatchScoringView: React.FC<MatchScoringViewProps> = ({
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowEventModal(null)} className="absolute inset-0 bg-slate-900/80 backdrop-blur-md" />
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-white w-full max-w-sm rounded-[32px] p-8 shadow-2xl">
               <button onClick={() => setShowEventModal(null)} className="absolute right-6 top-6 p-2 text-slate-300 hover:text-slate-600 transition-colors"><X className="w-5 h-5" /></button>
-              <h3 className="text-xl font-black mb-6 uppercase tracking-tighter">Event Details</h3>
+              <h3 className="text-xl font-black mb-6 uppercase tracking-tighter text-slate-900">
+                {showEventModal.type === 'goal' ? 'Log Goal' :
+                 showEventModal.type === 'substitution' ? 'Log Substitution' :
+                 showEventModal.step === 0 ? 'Select Card Color' :
+                 showEventModal.type === 'yellow_card' ? 'Yellow Card' : 'Red Card'}
+              </h3>
+              
+              {showEventModal.step === 0 && (showEventModal.type === 'yellow_card' || showEventModal.type === 'red_card') && (
+                <div className="space-y-4">
+                  <p className="text-[9px] font-black uppercase text-slate-400">Select Card Color</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <button 
+                      onClick={() => setShowEventModal({ ...showEventModal, type: 'yellow_card', step: 1 })}
+                      className="bg-amber-400 hover:bg-amber-500 text-amber-950 font-black p-6 rounded-2xl flex flex-col items-center justify-center gap-3 active:scale-95 hover:scale-[1.02] transition-all border border-amber-300 shadow-md shadow-amber-500/10 hover:shadow-amber-500/20"
+                    >
+                      <div className="w-8 h-12 bg-amber-400 rounded-sm border border-amber-500 shadow-md" />
+                      <span className="text-xs uppercase tracking-wider font-extrabold">Yellow</span>
+                    </button>
+                    <button 
+                      onClick={() => setShowEventModal({ ...showEventModal, type: 'red_card', step: 1 })}
+                      className="bg-red-500 hover:bg-red-600 text-white font-black p-6 rounded-2xl flex flex-col items-center justify-center gap-3 active:scale-95 hover:scale-[1.02] transition-all border border-red-400 shadow-md shadow-red-500/10 hover:shadow-red-500/20"
+                    >
+                      <div className="w-8 h-12 bg-red-500 rounded-sm border border-red-600 shadow-md" />
+                      <span className="text-xs uppercase tracking-wider font-extrabold">Red</span>
+                    </button>
+                  </div>
+                </div>
+              )}
               
               {showEventModal.step === 1 && showEventModal.type === 'goal' && (
                 <div className="grid grid-cols-2 gap-2">
@@ -839,10 +1186,17 @@ export const MatchScoringView: React.FC<MatchScoringViewProps> = ({
                 <div className="space-y-4">
                    <p className="text-[9px] font-black uppercase text-slate-400">{showEventModal.step === 1 ? 'Player Leaving' : 'Player Entering'}</p>
                    <div className="grid grid-cols-1 gap-2 max-h-[300px] overflow-y-auto no-scrollbar">
-                      {(showEventModal.step === 1 ? sortPlayersByPosition(showEventModal.side === 'A' ? playersA : playersB).filter(p => isEligible(p.id)) : sortPlayersByPosition(showEventModal.side === 'A' ? playersA : playersB).filter(p => !isEligible(p.id) && !redCardedPlayerIds.has(p.id) && !substitutedOutPlayerIds.has(p.id))).map(p => (
+                      {(showEventModal.step === 1 
+                        ? sortPlayersByPosition(showEventModal.side === 'A' ? playersA : playersB).filter(p => isEligible(p.id)) 
+                        : sortPlayersByPosition(showEventModal.side === 'A' ? playersA : playersB).filter(p => p.id !== showEventModal.data?.playerOutId && !redCardedPlayerIds.has(p.id) && !substitutedOutPlayerIds.has(p.id))
+                      ).map(p => (
                         <button key={p.id} onClick={() => {
-                          if (showEventModal.step === 1) setShowEventModal({...showEventModal, step: 2, data: { playerOutId: p.id }});
-                          else addEvent(showEventModal.data.playerOutId, 'substitution', (showEventModal.side === 'A' ? teamA : teamB)!.id, { assistantId: p.id });
+                          if (showEventModal.step === 1) {
+                            setShowEventModal({...showEventModal, step: 2, data: { playerOutId: p.id }});
+                          } else {
+                            setShowEventModal(null);
+                            addEvent(showEventModal.data.playerOutId, 'substitution', (showEventModal.side === 'A' ? teamA : teamB)!.id, { assistantId: p.id });
+                          }
                         }} className="bg-slate-50 p-4 rounded-xl font-bold text-xs flex items-center justify-between transition-colors hover:bg-slate-100">
                            <span>{p.name}</span>
                            <span className="text-[10px] text-slate-400">#{p.number}</span>

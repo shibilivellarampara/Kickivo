@@ -57,6 +57,42 @@ export default function App() {
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [globalMessage, setGlobalMessage] = useState<string | null>(null);
 
+  // Swipe-to-back history tracking
+  const [viewHistory, setViewHistory] = useState<string[]>(['home']);
+  const historyRef = React.useRef<string[]>(['home']);
+  const viewRef = React.useRef<string>('home');
+
+  useEffect(() => {
+    viewRef.current = view;
+    setViewHistory(prev => {
+      if (prev[prev.length - 1] === view) return prev;
+      const next = view === 'home' ? ['home'] : [...prev, view];
+      historyRef.current = next;
+      return next;
+    });
+  }, [view]);
+
+  const handleGoBack = React.useCallback(() => {
+    const prev = historyRef.current;
+    if (prev.length > 1) {
+      const nextHistory = [...prev];
+      nextHistory.pop(); // Remove current view
+      const lastView = nextHistory[nextHistory.length - 1];
+      
+      historyRef.current = nextHistory;
+      setViewHistory(nextHistory);
+      setView(lastView as any);
+      if (lastView === 'home') {
+        setSelectedTournament(null);
+      }
+    } else {
+      historyRef.current = ['home'];
+      setViewHistory(['home']);
+      setView('home');
+      setSelectedTournament(null);
+    }
+  }, []);
+
   const clearError = () => setGlobalError(null);
   const clearMessage = () => setGlobalMessage(null);
 
@@ -88,6 +124,41 @@ export default function App() {
   useEffect(() => {
     const errorListener = (e: any) => handleError(e.detail);
     window.addEventListener('app-error', errorListener);
+
+    // Swipe left-to-right detector
+    let touchStartX = 0;
+    let touchStartY = 0;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (e.changedTouches.length !== 1) return;
+      const touchEndX = e.changedTouches[0].clientX;
+      const touchEndY = e.changedTouches[0].clientY;
+
+      const deltaX = touchEndX - touchStartX;
+      const deltaY = Math.abs(touchEndY - touchStartY);
+
+      // Trigger standard back gesture if horizontal displacement > 75px and start boundary is left 30%
+      if (
+        touchStartX < Math.max(150, window.innerWidth * 0.3) &&
+        deltaX > 75 &&
+        deltaY < 50
+      ) {
+        const swipeEvent = new CustomEvent('swipe-back', { cancelable: true });
+        const defaulted = window.dispatchEvent(swipeEvent);
+        if (defaulted) {
+          handleGoBack();
+        }
+      }
+    };
+
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
@@ -131,10 +202,12 @@ export default function App() {
 
     return () => {
       window.removeEventListener('app-error', errorListener);
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchend', handleTouchEnd);
       unsubscribeAuth();
       unsubscribeTournaments();
     };
-  }, []);
+  }, [handleGoBack]);
 
   const login = async () => {
     try {
@@ -381,10 +454,10 @@ export default function App() {
             const isActive = item.id === 'home' ? view === 'home' : (view === 'dashboard' && dashboardTab === item.tab);
             const Icon = item.icon;
             return (
-              <button key={item.id} onClick={() => { if (item.id === 'home') setView('home'); else { setView('dashboard'); setDashboardTab(item.tab as any); } }} className={`relative flex flex-col items-center justify-center gap-1 w-12 h-12 rounded-2xl transition-all ${isActive ? 'text-emerald-500 scale-110' : 'text-slate-400'}`}>
+              <button key={item.id} onClick={() => { if (item.id === 'home') setView('home'); else { setView('dashboard'); setDashboardTab(item.tab as any); } }} className={`relative flex flex-col items-center justify-center gap-0.5 min-h-[44px] min-w-[44px] rounded-2xl transition-all ${isActive ? 'text-emerald-500 scale-110' : 'text-slate-400'}`}>
                 {isActive && <motion.div layoutId="mobile-nav-bg" className="absolute inset-0 bg-emerald-500/10 rounded-2xl" />}
-                {typeof Icon === 'function' ? <Icon /> : <Icon className="w-5 h-5 relative z-10" />}
-                <span className="text-[8px] font-black uppercase tracking-tighter relative z-10">{item.label}</span>
+                <Icon className="w-5 h-5 relative z-10" />
+                <span className="text-[9px] font-bold uppercase tracking-wider relative z-10">{item.label}</span>
               </button>
             );
           })}

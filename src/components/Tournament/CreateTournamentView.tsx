@@ -17,6 +17,7 @@ export const CreateTournamentView: React.FC<CreateTournamentViewProps> = ({ user
   const [type, setType] = useState<Tournament['type']>('league');
   const [numberOfGroups, setNumberOfGroups] = useState(2);
   const [advancingPerGroup, setAdvancingPerGroup] = useState(2);
+  const [advancementType, setAdvancementType] = useState<'standard' | 'qualifier'>('standard');
   const [maxTeams, setMaxTeams] = useState(8);
   const [matchesPerDay, setMatchesPerDay] = useState(8);
   const [startTime, setStartTime] = useState('10:00');
@@ -42,6 +43,7 @@ export const CreateTournamentView: React.FC<CreateTournamentViewProps> = ({ user
         type,
         numberOfGroups: type === 'league_playoff' ? numberOfGroups : null,
         advancingPerGroup: type === 'league_playoff' ? advancingPerGroup : null,
+        advancementType: type === 'league_playoff' ? (numberOfGroups === 1 && advancingPerGroup === 3 ? 'qualifier' : 'standard') : null,
         maxTeams: Number(maxTeams),
         matchesPerDay,
         startTime,
@@ -296,22 +298,44 @@ export const CreateTournamentView: React.FC<CreateTournamentViewProps> = ({ user
               <label className="text-xs font-bold uppercase tracking-widest text-slate-400">Number of Groups</label>
               <select 
                 value={numberOfGroups}
-                onChange={e => setNumberOfGroups(Number(e.target.value))}
+                onChange={e => {
+                  const val = Number(e.target.value);
+                  setNumberOfGroups(val);
+                  if (val !== 1) setAdvancementType('standard');
+                }}
                 className="w-full bg-slate-50 px-5 py-4 rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
               >
-                {[2, 4, 8].map(n => <option key={n} value={n}>{n} Groups</option>)}
+                {[1, 2, 4, 8].map(n => <option key={n} value={n}>{n} {n === 1 ? 'Group (Single)' : 'Groups'}</option>)}
               </select>
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-bold uppercase tracking-widest text-slate-400">Advancing per Group</label>
+              <label className="text-xs font-bold uppercase tracking-widest text-slate-400">Advancing to Knockout</label>
               <select 
                 value={advancingPerGroup}
                 onChange={e => setAdvancingPerGroup(Number(e.target.value))}
                 className="w-full bg-slate-50 px-5 py-4 rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
               >
-                {[1, 2, 4].map(n => <option key={n} value={n}>Top {n} Teams</option>)}
+                {numberOfGroups === 1 
+                  ? [2, 3, 4].map(n => <option key={n} value={n}>Top {n} Teams</option>)
+                  : [1, 2, 4].map(n => <option key={n} value={n}>Top {n} per Group</option>)
+                }
               </select>
             </div>
+            {numberOfGroups === 1 && advancingPerGroup === 3 && (
+              <div className="col-span-2 p-4 bg-amber-50 rounded-2xl border border-amber-100">
+                <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest flex items-center gap-2">
+                  <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+                  Qualifier Mode Active
+                </p>
+                <p className="text-[10px] text-amber-600 mt-1">1st place goes to Final. 2nd vs 3rd play a Qualifier for the last Final spot.</p>
+              </div>
+            )}
+            {numberOfGroups === 1 && advancingPerGroup === 2 && (
+              <div className="col-span-2 p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                <p className="text-[10px] font-bold text-blue-700 uppercase tracking-widest">Straight to Final</p>
+                <p className="text-[10px] text-blue-600 mt-1">1st and 2nd will play the Grand Final immediately.</p>
+              </div>
+            )}
           </motion.div>
         )}
         <div className="space-y-4 p-5 bg-slate-50 rounded-2xl border border-slate-200">

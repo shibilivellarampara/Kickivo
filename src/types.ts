@@ -28,6 +28,7 @@ export interface Tournament {
   startTime?: string; // HH:mm
   matchDuration?: number; // minutes
   hasLosersFinal?: boolean;
+  advancementType?: 'standard' | 'qualifier';
 }
 
 export interface Team {

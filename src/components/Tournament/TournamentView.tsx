@@ -62,10 +62,11 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
   const [isGenerating, setIsGenerating] = useState(false);
 
   const isCreator = user?.uid === tournament.creatorId;
+  const liveMatches = useMemo(() => matches.filter(m => m.status === 'live'), [matches]);
 
   const tiesByRound = useMemo(() => {
     const playoffMatches = matches.filter(m => m.group === 'Playoffs' || tournament.type === 'knockout');
-    const rounds = ['Round of 64', 'Round of 32', 'Round of 16', 'Qualification', 'Quarter-final', 'Semi-final', 'Losers Final', 'Final'];
+    const rounds = ['Round of 64', 'Round of 32', 'Round of 16', 'Qualification', 'Qualifier', 'Quarter-final', 'Semi-final', 'Losers Final', 'Final'];
     const result: Record<string, Match[][]> = {};
     
     rounds.forEach(r => {
@@ -160,6 +161,32 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
       unsubscribePlayers();
     };
   }, [tournament.id, onError]);
+
+  // Handle subtle page back or subview escape on swipe left to right
+  useEffect(() => {
+    const handleSwipeBack = (e: Event) => {
+      if (selectedMatch) {
+        e.preventDefault();
+        setSelectedMatch(null);
+      } else if (selectedTeam) {
+        e.preventDefault();
+        setSelectedTeam(null);
+      } else if (showAddTeam) {
+        e.preventDefault();
+        setShowAddTeam(false);
+      } else if (showAddMatch) {
+        e.preventDefault();
+        setShowAddMatch(false);
+      } else {
+        e.preventDefault();
+        onBack();
+      }
+    };
+    window.addEventListener('swipe-back', handleSwipeBack);
+    return () => {
+      window.removeEventListener('swipe-back', handleSwipeBack);
+    };
+  }, [selectedMatch, selectedTeam, showAddTeam, showAddMatch, onBack]);
 
   // Auto-manage tournament status
   useEffect(() => {
@@ -449,35 +476,98 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
     const numAdvancing = tournament.advancingPerGroup || 2;
     const numGroups = tournament.numberOfGroups || 2;
     const qualified: Team[] = [];
+    
     for (let i = 0; i < numGroups; i++) {
-        qualified.push(...getStandingsForGroup(`Group ${String.fromCharCode(65 + i)}`).slice(0, numAdvancing));
+        const standings = getStandingsForGroup(`Group ${String.fromCharCode(65 + i)}`);
+        qualified.push(...standings.slice(0, numAdvancing));
     }
+
     if (qualified.length < 2) return onError('Not enough teams qualified');
+    
     setIsGenerating(true);
     try {
-        const qualified: Team[] = [];
-        for (let i = 0; i < numGroups; i++) {
-            qualified.push(...getStandingsForGroup(`Group ${String.fromCharCode(65 + i)}`).slice(0, numAdvancing));
-        }
-        if (qualified.length < 2) return onError('Not enough teams qualified');
+        const cleanObj = (obj: any) => {
+          const newObj = { ...obj };
+          Object.keys(newObj).forEach(key => {
+            if (newObj[key] === undefined) delete newObj[key];
+          });
+          return newObj;
+        };
 
-        const result = await generateBrackets(qualified, 'Playoffs');
-        if (Array.isArray(result)) {
-            // Manual schedule if fallback happened
-            for (const m of result) {
-              await addDoc(collection(db, `/tournaments/${tournament.id}/matches`), cleanObj({
-                  ...m,
-                  scoreA: 0, scoreB: 0, status: 'scheduled', tournamentId: tournament.id, createdAt: serverTimestamp(),
-              }));
-            }
-            notify('Playoff brackets generated!');
+        const createM = async (data: any) => (await addDoc(collection(db, `/tournaments/${tournament.id}/matches`), cleanObj({ 
+          scoreA: 0, 
+          scoreB: 0, 
+          status: 'scheduled', 
+          tournamentId: tournament.id, 
+          group: 'Playoffs', 
+          createdAt: serverTimestamp(), 
+          ...data 
+        }))).id;
+
+        // Special Case: Single Group with 2, 3, or 4 teams
+        if (numGroups === 1) {
+          const groupTeams = qualified;
+          if (numAdvancing === 2) {
+            // Direct Final
+            await createM({ round: 'Final', teamAId: groupTeams[0].id, teamBId: groupTeams[1].id });
+            notify('Grand Final generated!');
+          } else if (numAdvancing === 3) {
+             // Qualifier: 2nd vs 3rd, 1st direct to Final
+             const finalId = await createM({ round: 'Final', teamAId: groupTeams[0].id, placeholderB: `Winner of Qualifier` });
+             await createM({ 
+               round: 'Qualifier', 
+               teamAId: groupTeams[1].id, 
+               teamBId: groupTeams[2].id, 
+               successorMatchId: finalId, 
+               successorSide: 'B' 
+             });
+             notify('Qualifier and Final generated!');
+          } else if (numAdvancing === 4) {
+             // Semi-finals: 1st vs 4th, 2nd vs 3rd
+             const finalId = await createM({ round: 'Final', placeholderA: 'Winner SF1', placeholderB: 'Winner SF2' });
+             await createM({ 
+               round: 'Semi-final', 
+               teamAId: groupTeams[0].id, 
+               teamBId: groupTeams[3].id, 
+               successorMatchId: finalId, 
+               successorSide: 'A' 
+             });
+             await createM({ 
+               round: 'Semi-final', 
+               teamAId: groupTeams[1].id, 
+               teamBId: groupTeams[2].id, 
+               successorMatchId: finalId, 
+               successorSide: 'B' 
+             });
+             notify('Semi-finals and Final generated!');
+          } else {
+             // Standard bracket for other cases
+             await generateBrackets(groupTeams, 'Playoffs');
+          }
+        } else {
+          // Standard Group Stage advancement logic
+          const result = await generateBrackets(qualified, 'Playoffs');
+          if (Array.isArray(result)) {
+              for (const m of result) {
+                await addDoc(collection(db, `/tournaments/${tournament.id}/matches`), cleanObj({
+                    ...m,
+                    scoreA: 0, scoreB: 0, status: 'scheduled', tournamentId: tournament.id, createdAt: serverTimestamp(), group: 'Playoffs'
+                }));
+              }
+              notify('Playoff brackets generated!');
+          }
         }
-    } catch (err) { onError(err); handleFirestoreError(err, OperationType.WRITE, 'matches'); } finally { setIsGenerating(false); }
+    } catch (err) { 
+      onError(err); 
+      handleFirestoreError(err, OperationType.WRITE, 'matches'); 
+    } finally { 
+      setIsGenerating(false); 
+    }
   };
 
   const generateNextRound = async () => {
     const playM = matches.filter(m => m.group === 'Playoffs');
-    const rounds = ['Round of 16', 'Qualification', 'Quarter-final', 'Semi-final', 'Final'];
+    const rounds = ['Round of 16', 'Qualification', 'Qualifier', 'Quarter-final', 'Semi-final', 'Final'];
     // Find current round, considering 'Pre-quarter' alias
     const curR = [...rounds].reverse().find(r => 
       playM.some(m => m.round === r || (r === 'Round of 16' && m.round === 'Pre-quarter'))
@@ -536,11 +626,12 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
   const getStandingsForGroup = (group?: string) => {
     const ts = group ? teams.filter(t => t.group === group) : teams;
     return ts.map(t => {
-      const ms = matches.filter(m => m.status === 'finished' && m.group !== 'Playoffs' && (m.teamAId === t.id || m.teamBId === t.id));
+      const ms = matches.filter(m => (m.status === 'finished' || m.status === 'live') && m.group !== 'Playoffs' && (m.teamAId === t.id || m.teamBId === t.id));
       let w = 0, d = 0, l = 0, gf = 0, ga = 0;
       ms.forEach(m => {
         const isA = m.teamAId === t.id;
-        const s = isA ? m.scoreA : m.scoreB, o = isA ? m.scoreB : m.scoreA;
+        const s = isA ? (m.scoreA || 0) : (m.scoreB || 0);
+        const o = isA ? (m.scoreB || 0) : (m.scoreA || 0);
         gf += s; ga += o;
         if (s > o) w++; else if (s < o) l++; else d++;
       });
@@ -601,6 +692,72 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
         </div>
       </div>
 
+      {/* Live Matches Strip */}
+      {liveMatches.length > 0 && (
+        <div className="bg-gradient-to-r from-red-500/5 via-rose-500/10 to-transparent border border-rose-100 rounded-3xl p-5 space-y-3.5 shadow-sm">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
+            </span>
+            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-800 flex items-center gap-1.5">
+              Live Matches Now <span className="bg-rose-100 text-rose-600 text-[8px] font-extrabold px-1.5 py-0.5 rounded-full">{liveMatches.length}</span>
+            </h3>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {liveMatches.map(m => {
+              const tA = teams.find(t => t.id === m.teamAId);
+              const tB = teams.find(t => t.id === m.teamBId);
+              return (
+                <div 
+                  key={m.id} 
+                  onClick={() => setSelectedMatch(m)}
+                  className="bg-white/95 backdrop-blur-md hover:bg-white p-3.5 rounded-2xl border border-rose-100/50 hover:border-rose-300 transition-all shadow-sm hover:shadow cursor-pointer flex flex-col justify-between group"
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <span className="text-[8px] font-extrabold uppercase tracking-widest text-rose-500 bg-rose-50/70 px-1.5 py-0.5 rounded">
+                      {m.round || m.group || 'Match'}
+                    </span>
+                    {m.kickoff && (
+                      <span className="text-[8px] font-semibold text-slate-400">
+                        {m.kickoff.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                    <div className="flex items-center gap-1.5 justify-end min-w-0">
+                      <span className="text-[11px] font-black text-slate-700 truncate group-hover:text-rose-600 transition-colors">{tA?.name || m.placeholderA || 'TBD'}</span>
+                      {tA?.logoURL ? (
+                        <img src={tA.logoURL} className="w-5 h-5 rounded-full object-contain shrink-0" alt="" />
+                      ) : (
+                        <div className="w-5 h-5 rounded-full bg-slate-50 flex items-center justify-center text-[8px] font-extrabold text-slate-300 border border-slate-100 shrink-0">
+                          {tA?.name?.[0] || '?'}
+                        </div>
+                      )}
+                    </div>
+                    <div className="bg-rose-50 border border-rose-100 px-2 py-0.5 rounded-lg flex items-center justify-center gap-1 min-w-[40px] shrink-0 text-center">
+                      <span className="font-black text-xs text-rose-600">{m.scoreA}</span>
+                      <span className="text-rose-300 font-bold text-[9px]">-</span>
+                      <span className="font-black text-xs text-rose-600">{m.scoreB}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 justify-start min-w-0">
+                      {tB?.logoURL ? (
+                        <img src={tB.logoURL} className="w-5 h-5 rounded-full object-contain shrink-0" alt="" />
+                      ) : (
+                        <div className="w-5 h-5 rounded-full bg-slate-50 flex items-center justify-center text-[8px] font-extrabold text-slate-300 border border-slate-100 shrink-0">
+                          {tB?.name?.[0] || '?'}
+                        </div>
+                      )}
+                      <span className="text-[11px] font-black text-slate-700 truncate group-hover:text-rose-600 transition-colors">{tB?.name || m.placeholderB || 'TBD'}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center gap-4 md:gap-8 border-b border-slate-200 overflow-x-auto scrollbar-hide no-scrollbar pt-2">
         {(['matches', 'knockout', 'standings', 'teams', 'stats'] as const)
           .filter(t => {
@@ -645,7 +802,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                     acc[dateKey] = {
                       matches: [],
                       timestamp: m.kickoff?.seconds || (m.createdAt?.seconds || 0),
-                      roundIndex: m.round ? ['Round of 64', 'Round of 32', 'Round of 16', 'Qualification', 'Quarter-final', 'Semi-final', 'Losers Final', 'Final'].indexOf(m.round) : -1
+                      roundIndex: m.round ? ['Round of 64', 'Round of 32', 'Round of 16', 'Qualification', 'Qualifier', 'Quarter-final', 'Semi-final', 'Losers Final', 'Final'].indexOf(m.round) : -1
                     };
                   }
                   acc[dateKey].matches.push(m);
@@ -758,6 +915,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
               <div className="flex flex-col md:grid md:grid-cols-4 gap-12 items-center w-full">
                 <div className="space-y-4 flex flex-col items-end">
                    {tiesByRound['Qualification']?.length > 0 && <div className="flex flex-col gap-4">{tiesByRound['Qualification'].map(t => <div key={t[0].id} className="space-y-2">{t.map(m => <BracketMatch key={m.id} match={m} teams={teams} position="left" onSelect={setSelectedMatch} compact={tournament.homeAwayKnockout} />)}</div>)}</div>}
+                   {tiesByRound['Qualifier']?.length > 0 && <div className="flex flex-col gap-4">{tiesByRound['Qualifier'].map(t => <div key={t[0].id} className="space-y-2">{t.map(m => <BracketMatch key={m.id} match={m} teams={teams} position="left" onSelect={setSelectedMatch} compact={tournament.homeAwayKnockout} />)}</div>)}</div>}
                    {tiesByRound['Round of 16']?.length > 0 && <div className="flex flex-col gap-4">{tiesByRound['Round of 16'].slice(0,4).map(t => <div key={t[0].id} className="space-y-2">{t.map(m => <BracketMatch key={m.id} match={m} teams={teams} position="left" onSelect={setSelectedMatch} compact={tournament.homeAwayKnockout} />)}</div>)}</div>}
                 </div>
                 <div className="space-y-12 flex flex-col items-end">
@@ -790,6 +948,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                 </div>
                 <div className="space-y-4">
                    {tiesByRound['Round of 16']?.length > 0 && <div className="flex flex-col gap-4">{tiesByRound['Round of 16'].slice(4,8).map(t => <div key={t[0].id} className="space-y-2">{t.map(m => <BracketMatch key={m.id} match={m} teams={teams} position="right" onSelect={setSelectedMatch} compact={tournament.homeAwayKnockout} />)}</div>)}</div>}
+                   {tiesByRound['Qualifier']?.length > 0 && <div className="flex flex-col gap-4">{tiesByRound['Qualifier'].map(t => <div key={t[0].id} className="space-y-2">{t.map(m => <BracketMatch key={m.id} match={m} teams={teams} position="right" onSelect={setSelectedMatch} compact={tournament.homeAwayKnockout} />)}</div>)}</div>}
                    {tiesByRound['Qualification']?.length > 0 && <div className="flex flex-col gap-4">{tiesByRound['Qualification'].map(t => <div key={t[0].id} className="space-y-2">{t.map(m => <BracketMatch key={m.id} match={m} teams={teams} position="right" onSelect={setSelectedMatch} compact={tournament.homeAwayKnockout} />)}</div>)}</div>}
                 </div>
              </div>
@@ -800,22 +959,70 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
             {(tournament.type === 'league_playoff' ? Array.from({ length: tournament.numberOfGroups || 0 }).map((_, i) => `Group ${String.fromCharCode(65 + i)}`) : [undefined]).map(g => {
               const s = getStandingsForGroup(g);
+              const hasGroupLiveMatch = matches.some(m => m.status === 'live' && m.group !== 'Playoffs' && (g ? (m.group === g || (m.teamAId && teams.find(team => team.id === m.teamAId)?.group === g)) : true));
               return (
                 <div key={g || 'All'} className="space-y-4">
-                  {g && <h3 className="text-xl font-black italic">{g}</h3>}
-                  <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-sm">
-                    <table className="w-full text-left">
-                      <thead><tr className="bg-slate-50 border-b border-slate-100"><th className="px-6 py-4 text-[10px] font-bold uppercase text-slate-400 tracking-wider">#</th><th className="px-6 py-4 text-[10px] font-bold uppercase text-slate-400 tracking-wider">Team</th><th className="px-4 py-4 text-[10px] font-bold uppercase text-slate-400 tracking-wider text-center">MP</th><th className="px-4 py-4 text-[10px] font-bold uppercase text-slate-400 tracking-wider text-center">GD</th><th className="px-6 py-4 text-[10px] font-bold uppercase text-slate-400 tracking-wider text-center">PTS</th></tr></thead>
+                  <div className="flex items-center justify-between gap-4 flex-wrap">
+                    {g && <h3 className="text-xl font-black italic">{g}</h3>}
+                    {hasGroupLiveMatch && (
+                      <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-600 border border-emerald-100 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest animate-pulse ml-auto">
+                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full block animate-ping" />
+                        Live Standings Active
+                      </span>
+                    )}
+                  </div>
+                  <div className="bg-white rounded-3xl border border-slate-100 overflow-x-auto shadow-sm">
+                    <table className="min-w-[500px] md:min-w-full text-left">
+                      <thead><tr className="bg-slate-50 border-b border-slate-100"><th className="px-4 py-3 text-[10px] font-bold uppercase text-slate-400 tracking-wider">#</th><th className="px-4 py-3 text-[10px] font-bold uppercase text-slate-400 tracking-wider">Team</th><th className="px-3 py-3 text-[10px] font-bold uppercase text-slate-400 tracking-wider text-center">MP</th><th className="px-3 py-3 text-[10px] font-bold uppercase text-slate-400 tracking-wider text-center">PTS</th><th className="px-2 py-3 text-[10px] font-bold uppercase text-slate-400 tracking-wider text-center">GF</th><th className="px-2 py-3 text-[10px] font-bold uppercase text-slate-400 tracking-wider text-center">GA</th><th className="px-3 py-3 text-[10px] font-bold uppercase text-slate-400 tracking-wider text-center">GD</th></tr></thead>
                       <tbody className="divide-y divide-slate-50">
-                        {s.map((t, idx) => (
-                           <tr key={t.id} className="hover:bg-slate-50 transition-colors cursor-pointer group" onClick={() => setSelectedTeam(t)}>
-                             <td className="px-6 py-4 font-bold text-slate-300 text-xs">{idx + 1}</td>
-                             <td className="px-6 py-4 font-semibold flex items-center gap-3">{t.logoURL ? <img src={t.logoURL} className="w-8 h-8 rounded-full object-contain" /> : <div className="w-8 h-8 rounded-full bg-slate-50 border border-slate-100" />}<span className="text-sm group-hover:text-emerald-600 transition-colors">{t.name}</span></td>
-                             <td className="px-4 py-4 text-center font-semibold text-slate-400 text-sm">{t.played}</td>
-                             <td className="px-4 py-4 text-center font-semibold text-emerald-500 text-sm">{t.gd > 0 ? `+${t.gd}` : t.gd}</td>
-                             <td className="px-6 py-4 text-center"><span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-lg font-bold text-sm tracking-tight">{t.points}</span></td>
-                           </tr>
-                        ))}
+                         {s.map((t, idx) => {
+                            const liveMatchForTeam = matches.find(m => m.status === 'live' && m.group !== 'Playoffs' && (m.teamAId === t.id || m.teamBId === t.id));
+                            let liveStatus: 'winning' | 'losing' | 'drawing' | null = null;
+                            let oppName = '';
+                            if (liveMatchForTeam) {
+                              const isA = liveMatchForTeam.teamAId === t.id;
+                              const sScore = isA ? (liveMatchForTeam.scoreA || 0) : (liveMatchForTeam.scoreB || 0);
+                              const oScore = isA ? (liveMatchForTeam.scoreB || 0) : (liveMatchForTeam.scoreA || 0);
+                              const oppId = isA ? liveMatchForTeam.teamBId : liveMatchForTeam.teamAId;
+                              oppName = teams.find(team => team.id === oppId)?.name || 'Opponent';
+                              if (sScore > oScore) liveStatus = 'winning';
+                              else if (sScore < oScore) liveStatus = 'losing';
+                              else liveStatus = 'drawing';
+                            }
+                            return (
+                              <tr key={t.id} className="hover:bg-slate-50 transition-colors cursor-pointer group" onClick={() => setSelectedTeam(t)}>
+                                <td className="px-4 py-3 font-bold text-slate-300 text-xs">{idx + 1}</td>
+                                <td className="px-4 py-3 font-semibold flex items-center justify-between gap-3">
+                                  <div className="flex items-center gap-3">
+                                    {t.logoURL ? <img src={t.logoURL} className="w-8 h-8 rounded-full object-contain" /> : <div className="w-8 h-8 rounded-full bg-slate-50 border border-slate-100" />}
+                                    <span className="text-sm group-hover:text-emerald-600 transition-colors">{t.name}</span>
+                                  </div>
+                                  {liveStatus && (
+                                    <div className="flex items-center justify-center shrink-0 w-4 h-4 select-none"
+                                         title={`Live match vs ${oppName} (${liveMatchForTeam?.scoreA} - ${liveMatchForTeam?.scoreB})`}>
+                                      <span className="relative flex h-2 w-2">
+                                        <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                                          liveStatus === 'winning' ? 'bg-emerald-400' : liveStatus === 'losing' ? 'bg-rose-400' : 'bg-slate-400'
+                                        }`} />
+                                        <span className={`relative inline-flex rounded-full h-2 w-2 ${
+                                          liveStatus === 'winning' ? 'bg-emerald-500' : liveStatus === 'losing' ? 'bg-rose-500' : 'bg-slate-500'
+                                        }`} />
+                                      </span>
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="px-3 py-3 text-center font-semibold text-slate-400 text-sm">{t.played}</td>
+                                <td className="px-3 py-3 text-center">
+                                  <span className="bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-lg font-bold text-xs tracking-tight">
+                                    {t.points}
+                                  </span>
+                                </td>
+                                <td className="px-2 py-3 text-center font-medium text-slate-400 text-xs">{t.gf}</td>
+                                <td className="px-2 py-3 text-center font-medium text-slate-400 text-xs">{t.ga}</td>
+                                <td className="px-3 py-3 text-center font-semibold text-emerald-500 text-sm">{t.gd > 0 ? `+${t.gd}` : t.gd}</td>
+                              </tr>
+                            );
+                         })}
                       </tbody>
                     </table>
                   </div>
