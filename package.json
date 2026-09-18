@@ -1,5 +1,6 @@
 {
-  "name": "react-example",
+  "name": "kickivo",
+  "description": "The ultimate football tournament platform featuring live scoring, player career cards, and community recruitment.",
   "private": true,
   "version": "0.0.0",
   "type": "module",
