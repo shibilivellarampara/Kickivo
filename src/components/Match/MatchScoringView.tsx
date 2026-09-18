@@ -7,10 +7,11 @@ import {
   addDoc, 
   updateDoc,
   deleteDoc,
-  serverTimestamp, 
-  doc, 
+  serverTimestamp,
+  doc,
   getDocs,
-  setDoc
+  setDoc,
+  increment
 } from 'firebase/firestore';
 import { 
   Users, 
@@ -171,12 +172,12 @@ export const MatchScoringView: React.FC<MatchScoringViewProps> = ({
         if (isPenaltyShootout) {
           const field = teamToIncrementIsA ? 'pensA' : 'pensB';
           await setDoc(matchRef, {
-            [field]: (liveMatch[field] || 0) + 1,
+            [field]: increment(1),
             status: 'live'
           }, { merge: true });
         } else {
           await setDoc(matchRef, {
-            [teamToIncrementIsA ? 'scoreA' : 'scoreB']: (teamToIncrementIsA ? liveMatch.scoreA : liveMatch.scoreB) + 1,
+            [teamToIncrementIsA ? 'scoreA' : 'scoreB']: increment(1),
             status: 'live'
           }, { merge: true });
         }
@@ -210,12 +211,12 @@ export const MatchScoringView: React.FC<MatchScoringViewProps> = ({
             if (isPenaltyShootout) {
               const field = isTeamA ? 'pensA' : 'pensB';
               await updateDoc(matchRef, {
-                [field]: Math.max(0, (liveMatch[field] || 0) - 1)
+                [field]: increment(-1)
               });
             } else {
               const teamToDecrementIsA = isOwnGoal ? !isTeamA : isTeamA;
               await updateDoc(matchRef, {
-                [teamToDecrementIsA ? 'scoreA' : 'scoreB']: Math.max(0, (teamToDecrementIsA ? liveMatch.scoreA : liveMatch.scoreB) - 1)
+                [teamToDecrementIsA ? 'scoreA' : 'scoreB']: increment(-1)
               });
             }
           }
@@ -253,7 +254,7 @@ export const MatchScoringView: React.FC<MatchScoringViewProps> = ({
       if (result === 'goal') {
         const field = isTeamA ? 'pensA' : 'pensB';
         await setDoc(matchRef, {
-          [field]: (liveMatch[field] || 0) + 1,
+          [field]: increment(1),
           status: 'live'
         }, { merge: true });
       }

@@ -36,7 +36,7 @@ service cloud.firestore {
                data.keys().hasAll(['uid', 'email', 'displayName']);
       }
 
-      allow get: if isSignedIn();
+      allow get: if isOwner(userId);
       allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
       allow create: if isOwner(userId) && isValidUser(incoming());
       allow update: if isOwner(userId) && isValidUser(incoming()) && 
@@ -82,11 +82,34 @@ service cloud.firestore {
                        get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.creatorId == request.auth.uid;
 
       match /players/{playerId} {
+        function isTournamentCreator() {
+          return isSignedIn() &&
+                 get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.creatorId == request.auth.uid;
+        }
+
+        // A player self-joining a team via the invite link creates their own
+        // roster slot, or claims an existing unclaimed slot. Either way they
+        // may only ever set userId to themselves, and a claim may not touch
+        // name/stat fields that the creator manages.
+        function isSelfJoinCreate() {
+          return isSignedIn() &&
+                 incoming().userId == request.auth.uid &&
+                 incoming().teamId == teamId &&
+                 incoming().tournamentId == tournamentId &&
+                 incoming().keys().hasOnly(['name', 'userId', 'teamId', 'tournamentId', 'number', 'position', 'createdAt']);
+        }
+
+        function isSelfClaim() {
+          return isSignedIn() &&
+                 existing().userId == null &&
+                 incoming().userId == request.auth.uid &&
+                 incoming().diff(existing()).affectedKeys().hasOnly(['userId', 'tournamentId', 'updatedAt']);
+        }
+
         allow read: if true;
-        allow create, update: if isSignedIn() && 
-                               get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.creatorId == request.auth.uid;
-        allow delete: if isSignedIn() && 
-                         get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.creatorId == request.auth.uid;
+        allow create: if isTournamentCreator() || isSelfJoinCreate();
+        allow update: if isTournamentCreator() || isSelfClaim();
+        allow delete: if isTournamentCreator();
       }
     }
 

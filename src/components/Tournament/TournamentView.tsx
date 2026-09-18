@@ -269,6 +269,14 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
 
     if (count < 2) return notify('Need at least 2 teams for knockout');
 
+    // With exactly 2 teams there is no round before the Final - they ARE the Final.
+    // The general skeleton-building logic below assumes at least one round exists
+    // before the Final, so it would index into a nonexistent round and crash.
+    if (count === 2) {
+      await createP({ teamAId: shuffledTeams[0].id, teamBId: shuffledTeams[1].id, round: 'Final' });
+      return notify('Knockout bracket (2 teams) generated!');
+    }
+
     const getRoundName = (slots: number) => {
       if (slots === 2) return 'Final';
       if (slots === 4) return 'Semi-final';
@@ -354,15 +362,17 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
        });
     }
 
-    // Populate the bypass teams directly into the powerOf2 round placeholders/slots
+    // Populate the bye teams directly into their bracket slot. Every leaf pair in the
+    // powerOf2 round is either a real first-round match (2 teams) or a bye pair (1 team +
+    // 1 empty slot), and matchesInFirstRound + teamsWithByes always equals the total number
+    // of pairs, so continuing the same pair-index sequence used for the real matches above
+    // guarantees every powerOf2Matches slot is filled exactly once, with no gaps or drops.
     for (let i = 0; i < teamsForByes.length; i++) {
        const team = teamsForByes[i];
-       // The index in powerOf2Matches starts after the slots taken by the partial matches
-       // Each partial match occupies 0.5 of a powerOf2 match (since 2 partials = 1 powerOf2 winner)
-       const offset = Math.ceil(matchesInFirstRound / 2);
-       const matchIdx = offset + Math.floor(i / 2);
-       const side = (matchesInFirstRound % 2 === 0) ? (i % 2 === 0 ? 'A' : 'B') : ((i + 1) % 2 === 0 ? 'A' : 'B');
-       
+       const pairIndex = matchesInFirstRound + i;
+       const matchIdx = Math.floor(pairIndex / 2);
+       const side = pairIndex % 2 === 0 ? 'A' : 'B';
+
        const mRes = powerOf2Matches[matchIdx];
        if (mRes) {
          await updateDoc(doc(db, `/tournaments/${tournament.id}/matches/${mRes.leg1Id}`), {
@@ -658,12 +668,30 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
            </div>
            <h1 className="text-4xl md:text-5xl font-black tracking-tight leading-none text-slate-900">{tournament.name}</h1>
            {(() => {
-              const fin = matches.find(m => m.round === 'Final' && m.status === 'finished');
-              if (fin) {
-                const champId = (fin.scoreA > fin.scoreB || (fin.scoreA===fin.scoreB && (fin.pensA||0)>(fin.pensB||0))) ? fin.teamAId : fin.teamBId;
-                const champ = teams.find(t => t.id === champId);
-                if (champ) return <div className="flex items-center gap-2.5 bg-amber-50 border border-amber-200 px-4 py-2 rounded-full w-fit"><Trophy className="w-4 h-4 text-amber-500" /><span className="text-amber-700 font-bold text-sm">{champ.name}</span><span className="text-[9px] font-bold text-amber-400 uppercase tracking-[0.2em]">Champions</span></div>;
+              const finalMatches = matches.filter(m => m.round === 'Final');
+              let champId: string | null = null;
+
+              // A two-legged Final can't be decided until both legs finish - the
+              // aggregate (plus away-goals-style pens tiebreaker) determines the winner,
+              // not either leg's own score in isolation.
+              if (finalMatches.some(m => m.tieId)) {
+                const leg1 = finalMatches.find(m => m.leg === 1);
+                const leg2 = finalMatches.find(m => m.leg === 2);
+                if (leg1?.status === 'finished' && leg2?.status === 'finished') {
+                  const aggA = leg1.scoreA + leg2.scoreB;
+                  const aggB = leg1.scoreB + leg2.scoreA;
+                  champId = aggA > aggB ? leg1.teamAId : aggB > aggA ? leg1.teamBId :
+                            ((leg2.pensA || 0) > (leg2.pensB || 0) ? leg2.teamAId : leg2.teamBId);
+                }
+              } else {
+                const fin = finalMatches.find(m => m.status === 'finished');
+                if (fin) {
+                  champId = (fin.scoreA > fin.scoreB || (fin.scoreA===fin.scoreB && (fin.pensA||0)>(fin.pensB||0))) ? fin.teamAId : fin.teamBId;
+                }
               }
+
+              const champ = champId ? teams.find(t => t.id === champId) : null;
+              if (champ) return <div className="flex items-center gap-2.5 bg-amber-50 border border-amber-200 px-4 py-2 rounded-full w-fit"><Trophy className="w-4 h-4 text-amber-500" /><span className="text-amber-700 font-bold text-sm">{champ.name}</span><span className="text-[9px] font-bold text-amber-400 uppercase tracking-[0.2em]">Champions</span></div>;
               return null;
            })()}
            <div className="flex items-center gap-4">
