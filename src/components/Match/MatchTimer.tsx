@@ -43,22 +43,31 @@ export const MatchTimer: React.FC<MatchTimerProps> = ({ match, isCreator, tourna
   const toggleTimer = async () => {
     if (!isCreator) return;
     const matchRef = doc(db, `tournaments/${tournament.id}/matches/${match.id}`);
-    
-    if (match.isTimerRunning) {
-      const startTime = match.timerStartTime.toMillis ? match.timerStartTime.toMillis() : new Date(match.timerStartTime).getTime();
-      const diff = Math.floor((Date.now() - startTime) / 1000);
-      await updateDoc(matchRef, {
-        isTimerRunning: false,
-        elapsedTimeOnPause: (match.elapsedTimeOnPause || 0) + diff,
-        timerStartTime: null,
-        status: 'live'
-      });
-    } else {
-      await updateDoc(matchRef, {
-        isTimerRunning: true,
-        timerStartTime: serverTimestamp(),
-        status: 'live'
-      });
+
+    try {
+      if (match.isTimerRunning) {
+        // timerStartTime can still be null here: a pending serverTimestamp() write
+        // resolves locally as null until the server round-trip completes, so pausing
+        // immediately after kick-off can race ahead of that. Treat it as "just started".
+        const startTime = match.timerStartTime?.toMillis
+          ? match.timerStartTime.toMillis()
+          : (match.timerStartTime ? new Date(match.timerStartTime).getTime() : Date.now());
+        const diff = Math.max(0, Math.floor((Date.now() - startTime) / 1000));
+        await updateDoc(matchRef, {
+          isTimerRunning: false,
+          elapsedTimeOnPause: (match.elapsedTimeOnPause || 0) + diff,
+          timerStartTime: null,
+          status: 'live'
+        });
+      } else {
+        await updateDoc(matchRef, {
+          isTimerRunning: true,
+          timerStartTime: serverTimestamp(),
+          status: 'live'
+        });
+      }
+    } catch (err) {
+      console.error("Error toggling timer:", err);
     }
   };
 

@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  collection, 
-  query, 
-  where, 
-  getDocs, 
-  deleteDoc, 
-  doc, 
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  deleteDoc,
+  doc,
   orderBy,
-  collectionGroup
+  collectionGroup,
+  writeBatch
 } from 'firebase/firestore';
 import { User as FirebaseUser } from 'firebase/auth';
 import { 
@@ -118,7 +119,33 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }
 
     try {
-      await deleteDoc(doc(db, 'tournaments', tournamentId));
+      // Firestore doesn't cascade-delete subcollections, so deleting only the
+      // tournament doc would orphan its teams/players/matches/events forever -
+      // they'd keep showing up in collectionGroup queries (career stats, my
+      // teams) and become permanently un-deletable once the parent tournament
+      // (which the security rules check via get()) is gone.
+      const teamsSnap = await getDocs(collection(db, `tournaments/${tournamentId}/teams`));
+      const matchesSnap = await getDocs(collection(db, `tournaments/${tournamentId}/matches`));
+      const [playersSnaps, eventsSnaps] = await Promise.all([
+        Promise.all(teamsSnap.docs.map(t => getDocs(collection(db, `tournaments/${tournamentId}/teams/${t.id}/players`)))),
+        Promise.all(matchesSnap.docs.map(m => getDocs(collection(db, `tournaments/${tournamentId}/matches/${m.id}/events`))))
+      ]);
+
+      const refsToDelete = [
+        ...playersSnaps.flatMap(s => s.docs.map(d => d.ref)),
+        ...eventsSnaps.flatMap(s => s.docs.map(d => d.ref)),
+        ...teamsSnap.docs.map(d => d.ref),
+        ...matchesSnap.docs.map(d => d.ref),
+        doc(db, 'tournaments', tournamentId) // deleted last so the rules' get() on it still resolves for the earlier deletes
+      ];
+
+      const BATCH_LIMIT = 450;
+      for (let i = 0; i < refsToDelete.length; i += BATCH_LIMIT) {
+        const batch = writeBatch(db);
+        refsToDelete.slice(i, i + BATCH_LIMIT).forEach(ref => batch.delete(ref));
+        await batch.commit();
+      }
+
       setUserTournaments(prev => prev.filter(t => t.id !== tournamentId));
       setIsDeletingId(null);
     } catch (err) {
