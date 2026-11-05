@@ -699,23 +699,6 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
     } finally { setIsGenerating(false); }
   };
 
-  const resetAndRegenerateFixtures = async () => {
-    if (!window.confirm('Regenerate all fixtures? This will remove existing scheduled matches and re-create them with a fair schedule where each team plays at most once per day.')) return;
-    setIsGenerating(true);
-    try {
-      const scheduledOnly = matches.filter(m => m.status === 'scheduled');
-      for (const m of scheduledOnly) {
-        await deleteDoc(doc(db, `/tournaments/${tournament.id}/matches/${m.id}`));
-      }
-      await generateAutoSchedule();
-    } catch (err) {
-      onError(err);
-      handleFirestoreError(err, OperationType.WRITE, 'matches');
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
   const startPlayoffs = async () => {
     if (matches.some(m => m.group === 'Playoffs')) return onError('Playoffs already generated');
     const numAdvancing = tournament.advancingPerGroup || 2;
@@ -1193,17 +1176,6 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                   <button onClick={generateAutoSchedule} disabled={isGenerating} className="px-3.5 py-2 bg-slate-950 hover:bg-slate-850 text-white rounded-full text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm disabled:opacity-50">
                     <RefreshCw className={`w-3 h-3 ${isGenerating ? 'animate-spin' : ''}`} />
                     Auto-Fixtures
-                  </button>
-                )}
-                {matches.length > 0 && matches.every(m => m.status === 'scheduled') && (
-                  <button 
-                    onClick={resetAndRegenerateFixtures} 
-                    disabled={isGenerating} 
-                    className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm disabled:opacity-50"
-                    title="Regenerate all fixtures with distinct teams per day"
-                  >
-                    <RefreshCw className={`w-3 h-3 ${isGenerating ? 'animate-spin' : ''}`} />
-                    Regenerate Fixtures
                   </button>
                 )}
                 {(tournament.type === 'league_playoff' || (tournament.type === 'league' && (tournament.advancingPerGroup || 0) > 0)) && matches.length > 0 && !matches.some(m => m.group === 'Playoffs') && matches.filter(m => m.group !== 'Playoffs').every(m => m.status === 'finished') && (
