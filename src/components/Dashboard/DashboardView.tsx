@@ -90,10 +90,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         setCareerTeams(Object.values(cTeamsMap));
 
         if (followIds.size > 0) {
+          // Firestore limits an `in` filter to 10 values, so fetch in chunks instead of silently
+          // dropping everything after the 10th followed tournament.
           const ids = Array.from(followIds);
-          const qFollow = query(collection(db, 'tournaments'), where('__name__', 'in', ids.slice(0, 10)));
-          const sFollow = await getDocs(qFollow);
-          setFollowingTournaments(sFollow.docs.map(d => ({ id: d.id, ...d.data() } as Tournament)));
+          const chunks: string[][] = [];
+          for (let i = 0; i < ids.length; i += 10) chunks.push(ids.slice(i, i + 10));
+          const snaps = await Promise.all(
+            chunks.map(chunk => getDocs(query(collection(db, 'tournaments'), where('__name__', 'in', chunk))))
+          );
+          setFollowingTournaments(snaps.flatMap(s => s.docs.map(d => ({ id: d.id, ...d.data() } as Tournament))));
         }
 
         const events = sCareerEvents.docs.map(d => d.data() as MatchEvent);

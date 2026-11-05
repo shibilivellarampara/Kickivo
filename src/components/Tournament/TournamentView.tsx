@@ -40,6 +40,7 @@ import { DEFAULT_EMBLEMS, renderTeamLogo } from '../../utils/avatarUtils';
 import { Tournament, TournamentStatus, Match, Team, Player, MatchEvent, User } from '../../types';
 import { SoccerIcon } from '../common/Icons';
 import { formatTeamName, getTeamShortName } from '../../utils/football';
+import { fileToLogoDataUrl } from '../../utils/image';
 import { MatchScoringView } from '../Match/MatchScoringView';
 import { TeamDetailView } from './TeamDetailView';
 import { TeamSlot } from './TeamSlot';
@@ -353,7 +354,17 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
     return newObj;
   };
 
-  const generateBrackets = async (sourceTeams: Team[], group: string) => {
+  // Unbiased Fisher-Yates shuffle (sort(() => Math.random() - 0.5) is not uniform).
+  function shuffle<T>(items: T[]): T[] {
+    const a = [...items];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  const generateBrackets = async (sourceTeams: Team[], group: string, opts?: { avoidSameGroup?: boolean }) => {
     const createM = async (data: any) => (await addDoc(collection(db, `/tournaments/${tournament.id}/matches`), cleanObj({ 
       scoreA: 0, 
       scoreB: 0, 
@@ -386,10 +397,21 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
     };
 
     const sId = (res: any) => res.leg2Id ? `${res.leg1Id},${res.leg2Id}` : res.leg1Id;
-    const shuffledTeams = [...sourceTeams].sort(() => Math.random() - 0.5);
-    const count = shuffledTeams.length;
+    const count = sourceTeams.length;
 
     if (count < 2) return notify('Need at least 2 teams for knockout');
+
+    // With exactly 2 teams there is no round before the Final - they ARE the Final.
+    // The general skeleton-building logic below assumes at least one round exists
+    // before the Final, so it would index into a nonexistent round and crash.
+    if (count === 2) {
+      const pair = shuffle(sourceTeams);
+      await createP({ teamAId: pair[0].id, teamBId: pair[1].id, round: 'Final' });
+      return notify('Knockout bracket (2 teams) generated!');
+    }
+
+    // A 3rd-place match needs two losing semi-finalists, i.e. at least 4 teams.
+    const wantsLosersFinal = !!tournament.hasLosersFinal && count >= 4;
 
     const getRoundName = (slots: number) => {
       if (slots === 2) return 'Final';
@@ -414,7 +436,35 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
     // Number of teams that get a BYE in the first round
     const teamsWithByes = count - (2 * matchesInFirstRound);
 
-    // 2. Build skeleton from Final backwards 
+    // Draw order: the first `matchesInFirstRound * 2` teams play the first round in consecutive
+    // pairs, the rest receive byes (and two byes sharing a second-round tie meet each other).
+    // When the teams come from groups, redraw (up to a bound) so that teams from the same group
+    // are not paired against each other that early whenever an arrangement avoiding it exists.
+    const sameGroupClashes = (order: Team[]) => {
+      let clashes = 0;
+      for (let i = 0; i < matchesInFirstRound; i++) {
+        const a = order[i * 2], b = order[i * 2 + 1];
+        if (a.group && a.group === b.group) clashes++;
+      }
+      const byeTeams = order.slice(matchesInFirstRound * 2);
+      for (let s = matchesInFirstRound; s + 1 < matchesInFirstRound + byeTeams.length; s++) {
+        if (s % 2 !== 0) continue; // slots (2k, 2k+1) share a second-round tie
+        const a = byeTeams[s - matchesInFirstRound], b = byeTeams[s + 1 - matchesInFirstRound];
+        if (a.group && a.group === b.group) clashes++;
+      }
+      return clashes;
+    };
+    let shuffledTeams = shuffle(sourceTeams);
+    if (opts?.avoidSameGroup) {
+      let bestScore = sameGroupClashes(shuffledTeams);
+      for (let attempt = 0; attempt < 500 && bestScore > 0; attempt++) {
+        const candidate = shuffle(sourceTeams);
+        const score = sameGroupClashes(candidate);
+        if (score < bestScore) { shuffledTeams = candidate; bestScore = score; }
+      }
+    }
+
+    // 2. Build skeleton from Final backwards
     const roundsMap: any[][] = []; // [roundIdx][matchIdx] 0 is Final
     
     // Create skeleton for all rounds EXCEPT the partial first round
@@ -426,7 +476,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
 
     // Losers Final
     let lfId = '';
-    if (tournament.hasLosersFinal) {
+    if (wantsLosersFinal) {
       const res = await createP({ round: 'Losers Final', placeholderA: 'Winner LS1', placeholderB: 'Winner LS2' });
       lfId = sId(res);
     }
@@ -472,19 +522,24 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
          teamAId: tA.id,
          teamBId: tB.id,
          successorMatchId: sId(succ),
-         successorSide: side
+         successorSide: side,
+         // With 4 teams the "first round" IS the semi-final round, so its losers must feed the
+         // Losers Final too (the loop above only links semi-finals when an earlier round exists).
+         ...(firstRoundName === 'Semi-final' && lfId ? { loserSuccessorMatchId: lfId, loserSuccessorSide: side } : {})
        });
     }
 
-    // Populate the bypass teams directly into the powerOf2 round placeholders/slots
+    // Populate the bye teams directly into their bracket slot. Every leaf pair in the
+    // powerOf2 round is either a real first-round match (2 teams) or a bye pair (1 team +
+    // 1 empty slot), and matchesInFirstRound + teamsWithByes always equals the total number
+    // of pairs, so continuing the same pair-index sequence used for the real matches above
+    // guarantees every powerOf2Matches slot is filled exactly once, with no gaps or drops.
     for (let i = 0; i < teamsForByes.length; i++) {
        const team = teamsForByes[i];
-       // The index in powerOf2Matches starts after the slots taken by the partial matches
-       // Each partial match occupies 0.5 of a powerOf2 match (since 2 partials = 1 powerOf2 winner)
-       const offset = Math.ceil(matchesInFirstRound / 2);
-       const matchIdx = offset + Math.floor(i / 2);
-       const side = (matchesInFirstRound % 2 === 0) ? (i % 2 === 0 ? 'A' : 'B') : ((i + 1) % 2 === 0 ? 'A' : 'B');
-       
+       const pairIndex = matchesInFirstRound + i;
+       const matchIdx = Math.floor(pairIndex / 2);
+       const side = pairIndex % 2 === 0 ? 'A' : 'B';
+
        const mRes = powerOf2Matches[matchIdx];
        if (mRes) {
          await updateDoc(doc(db, `/tournaments/${tournament.id}/matches/${mRes.leg1Id}`), {
@@ -498,7 +553,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
        }
     }
 
-    notify(`Knockout bracket (${count} teams) generated!`);
+    notify(`Knockout bracket (${count} teams) generated!${tournament.hasLosersFinal && !wantsLosersFinal ? ' (Losers Final skipped: it needs at least 4 teams.)' : ''}`);
   };
 
   // Helper to generate fair round-robin rounds using the Circle (Berger) algorithm
@@ -511,7 +566,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
     if (teamIds.length < 2) return [];
 
     // Shuffle teams initially for randomized draw
-    const pool = [...teamIds].sort(() => Math.random() - 0.5);
+    const pool = shuffle<string>(teamIds);
     const isOdd = pool.length % 2 !== 0;
     const list: (string | null)[] = isOdd ? [...pool, null] : [...pool];
     const n = list.length;
@@ -572,7 +627,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
 
       if (tournament.type === 'league_playoff') {
         const numGroups = tournament.numberOfGroups || 2;
-        const shuffledTeams = [...teams].sort(() => Math.random() - 0.5);
+        const shuffledTeams = shuffle<Team>(teams);
         for (let i = 0; i < shuffledTeams.length; i++) {
           const groupName = `Group ${String.fromCharCode(65 + (i % numGroups))}`;
           await updateDoc(doc(db, `/tournaments/${tournament.id}/teams/${shuffledTeams[i].id}`), { group: groupName });
@@ -596,7 +651,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
           }
         }
       } else if (tournament.type === 'knockout') {
-        const shuffledTeams = [...teams].sort(() => Math.random() - 0.5);
+        const shuffledTeams = shuffle<Team>(teams);
         if (shuffledTeams.length < 2) return onError('Need at least 2 teams for knockout');
         
         const result = await generateBrackets(shuffledTeams, 'knockout');
@@ -697,23 +752,6 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
       onError(err);
       handleFirestoreError(err, OperationType.WRITE, 'matches');
     } finally { setIsGenerating(false); }
-  };
-
-  const resetAndRegenerateFixtures = async () => {
-    if (!window.confirm('Regenerate all fixtures? This will remove existing scheduled matches and re-create them with a fair schedule where each team plays at most once per day.')) return;
-    setIsGenerating(true);
-    try {
-      const scheduledOnly = matches.filter(m => m.status === 'scheduled');
-      for (const m of scheduledOnly) {
-        await deleteDoc(doc(db, `/tournaments/${tournament.id}/matches/${m.id}`));
-      }
-      await generateAutoSchedule();
-    } catch (err) {
-      onError(err);
-      handleFirestoreError(err, OperationType.WRITE, 'matches');
-    } finally {
-      setIsGenerating(false);
-    }
   };
 
   const startPlayoffs = async () => {
@@ -839,7 +877,7 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
           }
         } else {
           // Standard Group Stage advancement logic
-          const result = await generateBrackets(qualified, 'Playoffs');
+          const result = await generateBrackets(qualified, 'Playoffs', { avoidSameGroup: true });
           if (Array.isArray(result)) {
               for (const m of result) {
                 await addDoc(collection(db, `/tournaments/${tournament.id}/matches`), cleanObj({
@@ -1195,17 +1233,6 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                     Auto-Fixtures
                   </button>
                 )}
-                {matches.length > 0 && matches.every(m => m.status === 'scheduled') && (
-                  <button 
-                    onClick={resetAndRegenerateFixtures} 
-                    disabled={isGenerating} 
-                    className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm disabled:opacity-50"
-                    title="Regenerate all fixtures with distinct teams per day"
-                  >
-                    <RefreshCw className={`w-3 h-3 ${isGenerating ? 'animate-spin' : ''}`} />
-                    Regenerate Fixtures
-                  </button>
-                )}
                 {(tournament.type === 'league_playoff' || (tournament.type === 'league' && (tournament.advancingPerGroup || 0) > 0)) && matches.length > 0 && !matches.some(m => m.group === 'Playoffs') && matches.filter(m => m.group !== 'Playoffs').every(m => m.status === 'finished') && (
                   <button onClick={startPlayoffs} disabled={isGenerating} className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100/70 text-emerald-600 rounded-full text-xs font-bold flex items-center gap-1.5 border border-emerald-200 transition-all disabled:opacity-50">
                     <Trophy className="w-3 h-3" />
@@ -1446,8 +1473,10 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                 const fileInput = e.currentTarget.elements.namedItem('team-logo') as HTMLInputElement;
                 let logoURL = "";
                 if (fileInput.files?.[0]) {
-                  const reader = new FileReader();
-                  logoURL = await new Promise(r => { reader.onload = () => r(reader.result as string); reader.readAsDataURL(fileInput.files![0]); });
+                  try {
+                    // Downscale: a raw phone photo as base64 would exceed Firestore's 1 MiB document limit.
+                    logoURL = await fileToLogoDataUrl(fileInput.files[0]);
+                  } catch (imgErr) { return onError(imgErr); }
                 } else if (selectedEmblemId) {
                   logoURL = selectedEmblemId;
                 }

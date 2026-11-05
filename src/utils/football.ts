@@ -1,4 +1,18 @@
-import { Player, Team } from '../types';
+import { Match, Player, Team, Tournament } from '../types';
+
+/**
+ * A match must produce a winner (extra time / penalties) only when it is a knockout match:
+ * every match of a knockout tournament, or a playoff-stage match (`group === 'Playoffs'`) of a
+ * league / mixed tournament. League and group-stage matches may always end in a draw.
+ *
+ * Do NOT infer "knockout" from the mere presence of `match.round`: league fixtures also carry a
+ * round ("Round 1", "Round 2", ... = matchday), which previously made every drawn league match
+ * demand extra time or penalties.
+ */
+export const isKnockoutMatch = (
+  tournament: Pick<Tournament, 'type'>,
+  match: Pick<Match, 'group'>
+): boolean => tournament.type === 'knockout' || match.group === 'Playoffs';
 
 export const positionOrder: Record<string, number> = {
   'FWD': 1,
