@@ -684,6 +684,23 @@ export default function App() {
                 />
               </motion.div>
             )}
+            {view === 'join-team' && !user && joinData && (
+              <motion.div key="join-signin" className="max-w-xl mx-auto">
+                <div className="bg-white dark:bg-slate-900 rounded-[40px] p-8 md:p-12 border border-slate-200 dark:border-slate-800 shadow-xl text-center space-y-6">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Invitation to Join</p>
+                  <h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Sign in to join your team</h2>
+                  <p className="text-slate-500 dark:text-slate-400 font-medium">You have been invited to join a team. Sign in with Google to continue.</p>
+                  <div className="flex flex-col gap-4">
+                    <button onClick={login} className="w-full py-5 bg-emerald-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-100">
+                      Sign in with Google
+                    </button>
+                    <button onClick={() => setView('home')} className="text-slate-400 font-bold text-xs uppercase tracking-widest hover:text-slate-600">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
             {view === 'dashboard' && user && (
               <motion.div key="dashboard">
                 <DashboardView user={user} activeTab={dashboardTab} onTabChange={setDashboardTab} onSelectTournament={(t) => { setSelectedTournament(t); setView('tournament'); }} onError={handleError} />

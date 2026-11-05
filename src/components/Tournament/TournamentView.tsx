@@ -40,6 +40,7 @@ import { DEFAULT_EMBLEMS, renderTeamLogo } from '../../utils/avatarUtils';
 import { Tournament, TournamentStatus, Match, Team, Player, MatchEvent, User } from '../../types';
 import { SoccerIcon } from '../common/Icons';
 import { formatTeamName, getTeamShortName } from '../../utils/football';
+import { fileToLogoDataUrl } from '../../utils/image';
 import { MatchScoringView } from '../Match/MatchScoringView';
 import { TeamDetailView } from './TeamDetailView';
 import { TeamSlot } from './TeamSlot';
@@ -1472,8 +1473,10 @@ export const TournamentView: React.FC<TournamentViewProps> = ({
                 const fileInput = e.currentTarget.elements.namedItem('team-logo') as HTMLInputElement;
                 let logoURL = "";
                 if (fileInput.files?.[0]) {
-                  const reader = new FileReader();
-                  logoURL = await new Promise(r => { reader.onload = () => r(reader.result as string); reader.readAsDataURL(fileInput.files![0]); });
+                  try {
+                    // Downscale: a raw phone photo as base64 would exceed Firestore's 1 MiB document limit.
+                    logoURL = await fileToLogoDataUrl(fileInput.files[0]);
+                  } catch (imgErr) { return onError(imgErr); }
                 } else if (selectedEmblemId) {
                   logoURL = selectedEmblemId;
                 }
