@@ -393,7 +393,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans overflow-x-hidden transition-colors duration-300">
-      <header className="fixed top-0 left-0 right-0 z-[100] w-full bg-white/85 dark:bg-slate-900/90 backdrop-blur-3xl border-b border-black/5 dark:border-white/10 px-4 md:px-8 pt-[env(safe-area-inset-top,0px)] transition-colors duration-300">
+      <header className="fixed top-0 left-0 right-0 z-[100] w-full bg-white/85 dark:bg-slate-900/90 backdrop-blur-3xl border-b border-black/5 dark:border-white/10 shadow-[0_4px_16px_-4px_rgba(15,23,42,0.16)] dark:shadow-[0_4px_16px_-4px_rgba(0,0,0,0.6)] px-4 md:px-8 pt-[env(safe-area-inset-top,0px)] transition-colors duration-300">
         <div className="h-16 md:h-20 flex items-center justify-between w-full">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 md:gap-3 cursor-pointer group" onClick={() => { setView('home'); setSelectedTournament(null); }}>
@@ -711,7 +711,7 @@ export default function App() {
       </div>
 
       {/* Mobile Floating Bottom Navigation Bar (Always visible on mobile) */}
-      <nav className="md:hidden fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px))] left-1/2 -translate-x-1/2 z-[100] w-[94%] max-w-[440px] h-16 bg-white/85 dark:bg-slate-900/85 backdrop-blur-2xl border border-slate-100 dark:border-slate-800 rounded-[24px] shadow-lg shadow-slate-200/55 dark:shadow-black/30 flex items-center justify-around px-2">
+      <nav className="md:hidden fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px))] left-1/2 -translate-x-1/2 z-[100] w-[94%] max-w-[440px] h-16 bg-white/85 dark:bg-slate-900/85 backdrop-blur-2xl border border-slate-200/80 dark:border-slate-700 rounded-[24px] shadow-[0_8px_30px_rgba(15,23,42,0.20),0_2px_6px_rgba(15,23,42,0.10)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.65),0_2px_6px_rgba(0,0,0,0.4)] flex items-center justify-around px-2">
         {user ? (
           [
             { id: 'home', icon: LayoutGrid, label: 'Explore' },
