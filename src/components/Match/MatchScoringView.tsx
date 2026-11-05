@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 import { db, OperationType, handleFirestoreError } from '../../lib/firebase';
 import { Tournament, Match, Team, Player, MatchEvent, MatchEventType, GoalType } from '../../types';
-import { sortPlayersByPosition } from '../../utils/football';
+import { sortPlayersByPosition, isKnockoutMatch } from '../../utils/football';
 import { SoccerIcon, AppLogo, MissedPenaltyIcon } from '../common/Icons';
 import { renderTeamLogo } from '../../utils/avatarUtils';
 import { MatchTimer } from './MatchTimer';
@@ -99,6 +99,12 @@ export const MatchScoringView: React.FC<MatchScoringViewProps> = ({
   };
 
   const isEfootball = tournament.category === 'efootball' || tournament.isEfootball;
+
+  // Only knockout / playoff matches must produce a winner. League and group-stage matches can
+  // end in a draw, even though they carry a matchday `round` such as "Round 1".
+  const isKnockoutStage = isKnockoutMatch(tournament, liveMatch);
+  const isUndecidedKnockout =
+    isKnockoutStage && liveMatch.scoreA === liveMatch.scoreB && (liveMatch.pensA || 0) === (liveMatch.pensB || 0);
 
   const startDirectKickoff = async () => {
     if (!isCreator) return;
@@ -438,7 +444,7 @@ export const MatchScoringView: React.FC<MatchScoringViewProps> = ({
 
   const finishMatch = async () => {
     if (!isCreator || isFinishing) return;
-    const isKnockout = liveMatch.group === 'Playoffs' || liveMatch.round;
+    const isKnockout = isKnockoutStage;
     const isFirstLeg = liveMatch.leg === 1;
 
     if (isKnockout && !isFirstLeg) {
@@ -1454,7 +1460,7 @@ export const MatchScoringView: React.FC<MatchScoringViewProps> = ({
               <p className="text-slate-500 dark:text-slate-400 mb-8 font-medium">This will lock the match result and progress the tournament.</p>
               
               {/* Conditional Penalties/Extra Time Options for Knockout Tie */}
-              {((liveMatch.group === 'Playoffs' || liveMatch.round) && liveMatch.scoreA === liveMatch.scoreB && (liveMatch.pensA || 0) === (liveMatch.pensB || 0)) && (
+              {isUndecidedKnockout && (
                 <div className="mb-8 p-6 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30 rounded-[32px] space-y-4">
                   <div className="flex items-center justify-center gap-2">
                     <Trophy className="w-4 h-4 text-amber-500" />
@@ -1485,7 +1491,7 @@ export const MatchScoringView: React.FC<MatchScoringViewProps> = ({
                 <button onClick={() => setShowFinishConfirm(false)} className="flex-1 py-4 font-black uppercase text-[10px] tracking-widest text-slate-400 hover:text-slate-900 transition-colors">Cancel</button>
                 <button 
                   onClick={finishMatch} 
-                  disabled={isFinishing || ((liveMatch.group === 'Playoffs' || liveMatch.round) && liveMatch.scoreA === liveMatch.scoreB && (liveMatch.pensA || 0) === (liveMatch.pensB || 0))}
+                  disabled={isFinishing || isUndecidedKnockout}
                   className="flex-1 bg-red-500 text-white py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-red-500/20 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                 >
                   {isFinishing ? 'Processing...' : 'Confirm FT'}
