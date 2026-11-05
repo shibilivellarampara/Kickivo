@@ -14,6 +14,7 @@ import {
   orderBy, 
   doc, 
   getDocFromServer, 
+  getDoc,
   setDoc 
 } from 'firebase/firestore';
 import { 
@@ -31,7 +32,11 @@ import {
   RefreshCw,
   LayoutGrid,
   Activity,
-  Shield
+  Shield,
+  Sun,
+  Moon,
+  Settings,
+  Smartphone
 } from 'lucide-react';
 import { auth, db, OperationType, handleFirestoreError } from './lib/firebase';
 import { Tournament } from './types';
@@ -44,16 +49,56 @@ import { TournamentView } from './components/Tournament/TournamentView';
 import { CreateTournamentView } from './components/Tournament/CreateTournamentView';
 import { JoinTeamView } from './components/Tournament/JoinTeamView';
 import { RecruitmentBoard } from './components/views/RecruitmentBoard';
+import { PWAInstallButton } from './components/common/PWAInstallButton';
 
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [view, setView] = useState<'home' | 'tournament' | 'create-tournament' | 'dashboard' | 'join-team'>('home');
   const [dashboardTab, setDashboardTab] = useState<'tournaments' | 'teams' | 'profile' | 'following'>('tournaments');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    return (localStorage.getItem('theme') as 'light' | 'dark') || 'light';
+  });
+
+  useEffect(() => {
+    const root = window.document.documentElement;
+    let metaThemeColor = document.querySelector('meta[name="theme-color"]');
+    if (!metaThemeColor) {
+      metaThemeColor = document.createElement('meta');
+      metaThemeColor.setAttribute('name', 'theme-color');
+      document.head.appendChild(metaThemeColor);
+    }
+
+    if (theme === 'dark') {
+      root.classList.add('dark');
+      metaThemeColor.setAttribute('content', '#020617'); // slate-950
+    } else {
+      root.classList.remove('dark');
+      metaThemeColor.setAttribute('content', '#f8fafc'); // slate-50
+    }
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
   const [selectedTournament, setSelectedTournament] = useState<Tournament | null>(null);
   const [joinData, setJoinData] = useState<{ teamId: string, tournamentId: string } | null>(null);
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [followedIds, setFollowedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) {
+      setFollowedIds([]);
+      return;
+    }
+    const q = collection(db, `users/${user.uid}/following`);
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const ids = snapshot.docs.map(doc => doc.data().tournamentId as string).filter(Boolean);
+      setFollowedIds(ids);
+    }, (error) => {
+      console.error("Error listening to following subcollection: ", error);
+    });
+    return () => unsubscribe();
+  }, [user]);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [globalMessage, setGlobalMessage] = useState<string | null>(null);
 
@@ -209,6 +254,58 @@ export default function App() {
     };
   }, [handleGoBack]);
 
+  // Deep linking: Auto-route to selected tournament if t, tournament, or s is in URL on load
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const shortCode = params.get('s');
+
+    if (shortCode) {
+      const docRef = doc(db, 'short_urls', shortCode);
+      getDoc(docRef).then((docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data && data.url) {
+            const urlObj = new URL(data.url);
+            window.history.replaceState({}, '', urlObj.search);
+            
+            const updatedParams = new URLSearchParams(urlObj.search);
+            const tVal = updatedParams.get('t');
+            const joinVal = updatedParams.get('join');
+            
+            if (joinVal && tVal) {
+              setJoinData({ teamId: joinVal, tournamentId: tVal });
+              setView('join-team');
+            } else if (tVal && tournaments.length > 0) {
+              const found = tournaments.find(t => t.id === tVal);
+              if (found) {
+                setSelectedTournament(found);
+                setView('tournament');
+              }
+            } else if (tVal) {
+              // Force component to re-read updated URL parameters on next render
+              setView('home');
+            }
+          }
+        }
+      }).catch((err) => {
+        console.error('Failed to resolve short URL:', err);
+      });
+      return;
+    }
+
+    if (tournaments.length > 0 && view === 'home') {
+      const tourneyId = params.get('t') || params.get('tournament');
+      const joinT = params.get('join');
+      if (tourneyId && !joinT) {
+        const found = tournaments.find(t => t.id === tourneyId);
+        if (found) {
+          setSelectedTournament(found);
+          setView('tournament');
+        }
+      }
+    }
+  }, [tournaments, view]);
+
   const login = async () => {
     try {
       const provider = new GoogleAuthProvider();
@@ -217,6 +314,13 @@ export default function App() {
       handleError(e);
     }
   };
+
+  useEffect(() => {
+    (window as any).triggerLogin = login;
+    return () => {
+      delete (window as any).triggerLogin;
+    };
+  }, [login]);
 
   const logout = async () => {
     try {
@@ -230,9 +334,10 @@ export default function App() {
   if (loading) {
     const name = "KICKIVO";
     const characters = name.split("");
+    const isDark = theme === 'dark';
 
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center overflow-hidden">
+      <div className={`min-h-screen ${isDark ? 'bg-slate-950 text-white' : 'bg-white text-slate-900'} flex items-center justify-center overflow-hidden transition-colors duration-300`}>
         <div className="relative flex flex-col items-center">
           {/* Logo Animation: Coming from nothing */}
           <motion.div
@@ -263,7 +368,7 @@ export default function App() {
                   delay: 0.5 + (index * 0.1),
                   ease: "easeOut"
                 }}
-                className="text-slate-900 text-4xl font-black italic uppercase tracking-tighter"
+                className={`${isDark ? 'text-white' : 'text-slate-900'} text-4xl font-black italic uppercase tracking-tighter`}
               >
                 {char}
               </motion.span>
@@ -277,9 +382,9 @@ export default function App() {
             transition={{ delay: 1.5, duration: 1 }}
             className="flex items-center gap-3 mt-4"
           >
-            <div className="h-[2px] w-8 bg-emerald-500/20" />
+            <div className={`h-[2px] w-8 ${isDark ? 'bg-emerald-500/40' : 'bg-emerald-500/20'}`} />
             <span className="text-[10px] font-black uppercase text-emerald-500 tracking-[0.4em]">Arena Loading</span>
-            <div className="h-[2px] w-8 bg-emerald-500/20" />
+            <div className={`h-[2px] w-8 ${isDark ? 'bg-emerald-500/40' : 'bg-emerald-500/20'}`} />
           </motion.div>
         </div>
       </div>
@@ -287,31 +392,240 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans overflow-x-hidden">
-      <header className="sticky top-0 z-[100] w-full bg-white/70 backdrop-blur-3xl border-b border-black/5 px-4 md:px-8 h-16 md:h-20 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <button onClick={() => setIsSidebarOpen(true)} className="p-2.5 bg-slate-100 rounded-xl lg:hidden text-slate-600">
-            <Menu className="w-6 h-6" />
-          </button>
-          <div className="flex items-center gap-2 md:gap-3 cursor-pointer group" onClick={() => { setView('home'); setSelectedTournament(null); }}>
-            <div className="w-8 h-8 md:w-10 md:h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
-              <Zap className="w-5 h-5 md:w-6 md:h-6 text-white fill-white" />
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans overflow-x-hidden transition-colors duration-300">
+      <header className="fixed top-0 left-0 right-0 z-[100] w-full bg-white/85 dark:bg-slate-900/90 backdrop-blur-3xl border-b border-black/5 dark:border-white/10 px-4 md:px-8 pt-[env(safe-area-inset-top,0px)] transition-colors duration-300">
+        <div className="h-16 md:h-20 flex items-center justify-between w-full">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 md:gap-3 cursor-pointer group" onClick={() => { setView('home'); setSelectedTournament(null); }}>
+              <div className="w-8 h-8 md:w-10 md:h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
+                <Zap className="w-5 h-5 md:w-6 md:h-6 text-white fill-white" />
+              </div>
+              <span className="font-black text-xl md:text-2xl tracking-tighter uppercase italic text-slate-900 dark:text-white">Kickivo</span>
             </div>
-            <span className="font-black text-xl md:text-2xl tracking-tighter uppercase italic">Kickivo</span>
           </div>
-        </div>
-        <div>
+
+        {/* Center Desktop Navigation */}
+        <nav className="hidden lg:flex items-center gap-1 bg-slate-100/80 dark:bg-slate-800/80 p-1.5 rounded-2xl border border-slate-200/40 dark:border-slate-700/60 shadow-sm transition-colors">
+          <button 
+            onClick={() => { setView('home'); setSelectedTournament(null); }} 
+            className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 ${
+              view === 'home' 
+                ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20 font-black' 
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-white'
+            }`}
+          >
+            <LayoutGrid className="w-4 h-4" />
+            Explore
+          </button>
+          
+          <button 
+            onClick={() => { setView('dashboard'); setDashboardTab('tournaments'); }} 
+            className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 ${
+              view === 'dashboard' && dashboardTab === 'tournaments' 
+                ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-md font-black' 
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-white'
+            }`}
+          >
+            <Trophy className="w-4 h-4" />
+            Tournaments
+          </button>
+
+          {user && (
+            <>
+              <button 
+                onClick={() => { setView('dashboard'); setDashboardTab('following'); }} 
+                className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 ${
+                  view === 'dashboard' && dashboardTab === 'following' 
+                    ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-md font-black' 
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-white'
+                }`}
+              >
+                <Star className="w-4 h-4 text-amber-500" />
+                Following
+              </button>
+
+              <button 
+                onClick={() => { setView('dashboard'); setDashboardTab('teams'); }} 
+                className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 ${
+                  view === 'dashboard' && dashboardTab === 'teams' 
+                    ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-md font-black' 
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-white'
+                }`}
+              >
+                <Users className="w-4 h-4 text-blue-500" />
+                Squads
+              </button>
+            </>
+          )}
+        </nav>
+
+        {/* Right side Profile & Quick Theme toggle */}
+        <div className="flex items-center gap-2.5 md:gap-3">
+          <button 
+            type="button" 
+            onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} 
+            className="p-2 md:p-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-all"
+            aria-label="Toggle Theme"
+          >
+            {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4 text-amber-400" />}
+          </button>
+
           {user ? (
-            <button onClick={() => { setView('dashboard'); setDashboardTab('profile'); }} className="flex items-center gap-2.5 p-1 bg-black/5 rounded-full">
-              <img src={user.photoURL || ''} alt="" className="w-8 h-8 md:w-10 md:h-10 rounded-full border-2 border-white" />
-            </button>
+            <div className="relative">
+              <button 
+                onClick={() => setIsProfileOpen(!isProfileOpen)} 
+                className="flex items-center gap-2.5 p-1 bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 rounded-full transition-all focus:outline-none"
+              >
+                <img src={user.photoURL || ''} alt="Profile" className="w-8 h-8 md:w-10 md:h-10 rounded-full border-2 border-white dark:border-slate-800" />
+              </button>
+              
+              <AnimatePresence>
+                {isProfileOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setIsProfileOpen(false)} />
+                    <motion.div 
+                      initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                      transition={{ duration: 0.15 }}
+                      className="absolute right-0 mt-3 w-64 bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-3xl shadow-xl z-50 overflow-hidden divide-y divide-slate-150 dark:divide-slate-800"
+                    >
+                      <div className="px-5 py-4">
+                        <p className="text-[9px] font-black uppercase text-slate-400 dark:text-slate-500 tracking-wider">Signed In As</p>
+                        <p className="font-bold text-sm text-slate-800 dark:text-slate-200 truncate mt-1">{user.displayName || 'Player'}</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 truncate mt-0.5">{user.email}</p>
+                      </div>
+
+                      <div className="p-2 space-y-1">
+                        <button 
+                          onClick={() => { 
+                            setView('dashboard'); 
+                            setDashboardTab('profile'); 
+                            setIsProfileOpen(false); 
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-2xl transition-all text-left"
+                        >
+                          <UserIcon className="w-4 h-4 text-emerald-500" />
+                          <span>My Profile</span>
+                        </button>
+
+                        <button 
+                          onClick={() => { 
+                            setView('dashboard'); 
+                            setDashboardTab('tournaments'); 
+                            setIsProfileOpen(false); 
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-2xl transition-all text-left"
+                        >
+                          <Settings className="w-4 h-4 text-slate-500" />
+                          <span>Dashboard Settings</span>
+                        </button>
+
+                        <PWAInstallButton 
+                          variant="menu" 
+                          onSelect={() => setIsProfileOpen(false)} 
+                        />
+
+                        <button 
+                          onClick={() => { 
+                            setTheme(theme === 'light' ? 'dark' : 'light'); 
+                          }}
+                          className="w-full flex items-center justify-between px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-2xl transition-all text-left"
+                        >
+                          <div className="flex items-center gap-3">
+                            {theme === 'light' ? <Moon className="w-4 h-4 text-slate-500" /> : <Sun className="w-4 h-4 text-amber-500" />}
+                            <span>Dark Theme</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 lowercase bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full font-mono">
+                            {theme === 'dark' ? 'on' : 'off'}
+                          </span>
+                        </button>
+                      </div>
+
+                      <div className="p-2">
+                        <button 
+                          onClick={() => { 
+                            logout(); 
+                            setIsProfileOpen(false); 
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase tracking-wider text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-2xl transition-all text-left"
+                        >
+                          <LogOut className="w-4 h-4" />
+                          <span>Logout</span>
+                        </button>
+                      </div>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
+            </div>
           ) : (
-            <button onClick={login} className="bg-slate-900 text-white px-5 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest">
-              Sign In
-            </button>
+            <div className="relative flex items-center gap-2">
+              <button onClick={login} className="bg-slate-900 dark:bg-white text-white dark:text-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-emerald-500 dark:hover:bg-emerald-500 dark:hover:text-white px-3.5 md:px-5 py-2 md:py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-md">
+                Sign In
+              </button>
+
+              <button 
+                onClick={() => setIsProfileOpen(!isProfileOpen)} 
+                className="p-2 md:p-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-all"
+                title="Options"
+                aria-label="Options"
+              >
+                <UserIcon className="w-4 h-4" />
+              </button>
+
+              <AnimatePresence>
+                {isProfileOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setIsProfileOpen(false)} />
+                    <motion.div 
+                      initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                      transition={{ duration: 0.15 }}
+                      className="absolute right-0 mt-3 w-64 bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-3xl shadow-xl z-50 overflow-hidden divide-y divide-slate-150 dark:divide-slate-800"
+                    >
+                      <div className="px-5 py-4">
+                        <p className="text-[9px] font-black uppercase text-slate-400 dark:text-slate-500 tracking-wider">Welcome Guest</p>
+                        <p className="font-bold text-sm text-slate-800 dark:text-slate-200 truncate mt-1">Kickivo Arena</p>
+                      </div>
+
+                      <div className="p-2 space-y-1">
+                        <button 
+                          onClick={() => { login(); setIsProfileOpen(false); }}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-2xl transition-all text-left"
+                        >
+                          <LogIn className="w-4 h-4 text-emerald-500" />
+                          <span>Sign In with Google</span>
+                        </button>
+
+                        <PWAInstallButton 
+                          variant="menu" 
+                          onSelect={() => setIsProfileOpen(false)} 
+                        />
+
+                        <button 
+                          onClick={() => { setTheme(theme === 'light' ? 'dark' : 'light'); }}
+                          className="w-full flex items-center justify-between px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-2xl transition-all text-left"
+                        >
+                          <div className="flex items-center gap-3">
+                            {theme === 'light' ? <Moon className="w-4 h-4 text-slate-500" /> : <Sun className="w-4 h-4 text-amber-500" />}
+                            <span>Dark Theme</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 lowercase bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full font-mono">
+                            {theme === 'dark' ? 'on' : 'off'}
+                          </span>
+                        </button>
+                      </div>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
+            </div>
           )}
         </div>
-      </header>
+      </div>
+    </header>
 
       <AnimatePresence>
         {globalError && (
@@ -334,135 +648,116 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <div className="max-w-7xl mx-auto px-4 pt-8 pb-24 w-full">
-        <div className="flex flex-col lg:flex-row gap-8 min-h-[80vh] relative">
-          <AnimatePresence>
-            {(isSidebarOpen || (typeof window !== 'undefined' && window.innerWidth >= 1024)) && (
-              <motion.aside initial={{ x: -300 }} animate={{ x: 0 }} exit={{ x: -300 }} className={`fixed lg:sticky top-0 left-0 h-screen z-[200] lg:z-0 w-80 lg:w-72 shrink-0 ${isSidebarOpen ? 'block' : 'hidden lg:block'}`}>
-                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm lg:hidden z-[-1]" onClick={() => setIsSidebarOpen(false)} />
-                <div className="bg-white/90 backdrop-blur-3xl lg:border-r border-black/5 p-6 flex flex-col h-full">
-                  <div className="flex items-center gap-4 cursor-pointer pb-8 mb-6 border-b border-black/5" onClick={() => { setView('home'); setSelectedTournament(null); setIsSidebarOpen(false); }}>
-                    <div className="w-12 h-12 bg-emerald-500 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
-                      <Zap className="w-7 h-7 text-white fill-white" />
-                    </div>
-                    <div>
-                      <h1 className="font-black text-2xl tracking-tighter uppercase italic">Kickivo</h1>
-                      <p className="text-[9px] font-black uppercase text-emerald-500 tracking-[0.2em] mt-1">Official Hub</p>
-                    </div>
-                  </div>
-                  {user && (
-                    <nav className="space-y-2 flex-1">
-                      <button onClick={() => { setView('home'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all ${view === 'home' ? 'bg-emerald-500 text-white shadow-xl shadow-emerald-500/30 font-black' : 'text-slate-500 hover:bg-black/5'}`}>
-                        <LayoutGrid className="w-5 h-5" />
-                        <span className="text-[10px] uppercase tracking-widest">Explore Matches</span>
-                      </button>
-                      <button onClick={() => { setView('dashboard'); setDashboardTab('tournaments'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all ${view === 'dashboard' && dashboardTab === 'tournaments' ? 'bg-slate-900 text-white shadow-xl shadow-slate-900/30 font-black' : 'text-slate-500 hover:bg-black/5'}`}>
-                        <Activity className="w-5 h-5" />
-                        <span className="text-[10px] uppercase tracking-widest">Active Tournaments</span>
-                      </button>
-                      <button onClick={() => { setView('dashboard'); setDashboardTab('following'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all ${view === 'dashboard' && dashboardTab === 'following' ? 'bg-slate-900 text-white shadow-xl shadow-slate-900/30 font-black' : 'text-slate-500 hover:bg-black/5'}`}>
-                        <Star className="w-5 h-5 text-amber-400" />
-                        <span className="text-[10px] uppercase tracking-widest">Following</span>
-                      </button>
-                      <button onClick={() => { setView('dashboard'); setDashboardTab('teams'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all ${view === 'dashboard' && dashboardTab === 'teams' ? 'bg-slate-900 text-white shadow-xl shadow-slate-900/30 font-black' : 'text-slate-500 hover:bg-black/5'}`}>
-                        <Users className="w-5 h-5 text-blue-500" />
-                        <span className="text-[10px] uppercase tracking-widest">Squads</span>
-                      </button>
-                    </nav>
-                  )}
-                  {user ? (
-                    <div className="mt-auto pt-8 border-t border-black/5 flex flex-col gap-4 p-4">
-                      <button onClick={() => { logout(); setIsSidebarOpen(false); }} className="flex items-center gap-4 text-slate-400 hover:text-red-500 transition-colors">
-                        <LogOut className="w-5 h-5" />
-                        <span className="font-black text-[10px] uppercase tracking-widest">Logout</span>
-                      </button>
-                      <div className="pt-4 flex items-center justify-between">
-                        <span className="text-[9px] font-bold text-slate-300 uppercase tracking-widest">Kickivo Platform</span>
-                        <span className="text-[9px] font-black text-slate-300 bg-slate-50 px-2 py-0.5 rounded-full border border-slate-100">v1.2.4</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="mt-auto flex flex-col gap-8">
-                      <button onClick={login} className="w-full flex items-center justify-center gap-3 p-5 rounded-2xl bg-slate-900 text-white font-black text-[10px] uppercase tracking-widest shadow-xl shadow-slate-900/20">
-                        <LogIn className="w-5 h-5" />
-                        <span>Direct Sign In</span>
-                      </button>
-                      <div className="px-4 flex items-center justify-between">
-                        <span className="text-[9px] font-bold text-slate-300 uppercase tracking-widest">Kickivo Platform</span>
-                        <span className="text-[9px] font-black text-slate-300 bg-slate-50 px-2 py-0.5 rounded-full border border-slate-100">v1.2.4</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </motion.aside>
+      <div className="max-w-7xl mx-auto px-4 pt-[calc(4.75rem+env(safe-area-inset-top,0px))] md:pt-[7.5rem] pb-[calc(6rem+env(safe-area-inset-bottom,0px))] w-full dark:text-slate-100 transition-colors">
+        <main className="min-h-[80vh] min-w-0 pb-28 md:pb-8">
+          <AnimatePresence mode="wait">
+            {view === 'home' && (
+              <motion.div key="home" className="space-y-12">
+                <HomeView tournaments={tournaments} user={user} followedIds={followedIds} onSelectTournament={(t) => { setSelectedTournament(t); setView('tournament'); }} />
+                <RecruitmentBoard user={user} onError={handleError} notify={notify} />
+              </motion.div>
+            )}
+            {view === 'tournament' && selectedTournament && (
+              <motion.div key="tournament">
+                <TournamentView 
+                  tournament={selectedTournament} 
+                  user={user} 
+                  onBack={() => { setView('home'); setSelectedTournament(null); }} 
+                  onError={handleError} 
+                  notify={notify} 
+                />
+              </motion.div>
+            )}
+            {view === 'create-tournament' && (
+              <motion.div key="create">
+                <CreateTournamentView user={user} onSuccess={() => { setView('dashboard'); setDashboardTab('tournaments'); notify('Tournament created!'); }} onError={handleError} />
+              </motion.div>
+            )}
+            {view === 'join-team' && user && joinData && (
+              <motion.div key="join" className="max-w-xl mx-auto">
+                <JoinTeamView 
+                  teamId={joinData.teamId} 
+                  tournamentId={joinData.tournamentId} 
+                  user={user} 
+                  onSuccess={() => { setView('dashboard'); setDashboardTab('teams'); notify('Joined the team!'); window.history.replaceState({}, '', '/'); }} 
+                  onCancel={() => setView('home')} 
+                />
+              </motion.div>
+            )}
+            {view === 'dashboard' && user && (
+              <motion.div key="dashboard">
+                <DashboardView user={user} activeTab={dashboardTab} onTabChange={setDashboardTab} onSelectTournament={(t) => { setSelectedTournament(t); setView('tournament'); }} onError={handleError} />
+              </motion.div>
             )}
           </AnimatePresence>
-
-          <main className="flex-1 min-w-0">
-            <AnimatePresence mode="wait">
-              {view === 'home' && (
-                <motion.div key="home" className="space-y-12">
-                  <HomeView tournaments={tournaments} onSelectTournament={(t) => { setSelectedTournament(t); setView('tournament'); }} />
-                  <RecruitmentBoard user={user} onError={handleError} notify={notify} />
-                </motion.div>
-              )}
-              {view === 'tournament' && selectedTournament && (
-                <motion.div key="tournament">
-                  <TournamentView 
-                    tournament={selectedTournament} 
-                    user={user} 
-                    onBack={() => { setView('home'); setSelectedTournament(null); }} 
-                    onError={handleError} 
-                    notify={notify} 
-                  />
-                </motion.div>
-              )}
-              {view === 'create-tournament' && (
-                <motion.div key="create">
-                  <CreateTournamentView user={user} onSuccess={() => { setView('dashboard'); setDashboardTab('tournaments'); notify('Tournament created!'); }} onError={handleError} />
-                </motion.div>
-              )}
-              {view === 'join-team' && user && joinData && (
-                <motion.div key="join" className="max-w-xl mx-auto">
-                  <JoinTeamView 
-                    teamId={joinData.teamId} 
-                    tournamentId={joinData.tournamentId} 
-                    user={user} 
-                    onSuccess={() => { setView('dashboard'); setDashboardTab('teams'); notify('Joined the team!'); window.history.replaceState({}, '', '/'); }} 
-                    onCancel={() => setView('home')} 
-                  />
-                </motion.div>
-              )}
-              {view === 'dashboard' && user && (
-                <motion.div key="dashboard">
-                  <DashboardView user={user} activeTab={dashboardTab} onSelectTournament={(t) => { setSelectedTournament(t); setView('tournament'); }} onError={handleError} />
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </main>
-        </div>
+        </main>
       </div>
 
-      {user && (
-        <nav className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] w-[90%] h-16 bg-white/60 backdrop-blur-2xl border border-white/40 rounded-[32px] shadow-xl flex items-center justify-around px-2">
-            {[
+      {/* Mobile Floating Bottom Navigation Bar (Always visible on mobile) */}
+      <nav className="md:hidden fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px))] left-1/2 -translate-x-1/2 z-[100] w-[94%] max-w-[440px] h-16 bg-white/85 dark:bg-slate-900/85 backdrop-blur-2xl border border-slate-100 dark:border-slate-800 rounded-[24px] shadow-lg shadow-slate-200/55 dark:shadow-black/30 flex items-center justify-around px-2">
+        {user ? (
+          [
             { id: 'home', icon: LayoutGrid, label: 'Explore' },
             { id: 'tournaments', icon: Trophy, label: 'Tournaments', tab: 'tournaments' },
+            { id: 'following', icon: Star, label: 'Following', tab: 'following' },
             { id: 'teams', icon: Users, label: 'Teams', tab: 'teams' },
             { id: 'profile', icon: UserIcon, label: 'Me', tab: 'profile' }
           ].map((item) => {
             const isActive = item.id === 'home' ? view === 'home' : (view === 'dashboard' && dashboardTab === item.tab);
             const Icon = item.icon;
             return (
-              <button key={item.id} onClick={() => { if (item.id === 'home') setView('home'); else { setView('dashboard'); setDashboardTab(item.tab as any); } }} className={`relative flex flex-col items-center justify-center gap-0.5 min-h-[44px] min-w-[44px] rounded-2xl transition-all ${isActive ? 'text-emerald-500 scale-110' : 'text-slate-400'}`}>
+              <button 
+                key={item.id} 
+                onClick={() => { 
+                  if (item.id === 'home') {
+                    setView('home'); 
+                    setSelectedTournament(null);
+                  } else { 
+                    setView('dashboard'); 
+                    setDashboardTab(item.tab as any); 
+                  } 
+                }} 
+                className={`relative flex flex-col items-center justify-center gap-0.5 min-h-[44px] min-w-[44px] rounded-2xl transition-all ${isActive ? 'text-emerald-500 scale-105' : 'text-slate-400'}`}
+              >
                 {isActive && <motion.div layoutId="mobile-nav-bg" className="absolute inset-0 bg-emerald-500/10 rounded-2xl" />}
                 <Icon className="w-5 h-5 relative z-10" />
                 <span className="text-[9px] font-bold uppercase tracking-wider relative z-10">{item.label}</span>
               </button>
             );
-          })}
-        </nav>
-      )}
+          })
+        ) : (
+          [
+            { id: 'home', icon: LayoutGrid, label: 'Explore' },
+            { id: 'tournaments', icon: Trophy, label: 'Tournaments' },
+            { id: 'install', icon: Smartphone, label: 'Install', isInstall: true },
+            { id: 'signin', icon: LogIn, label: 'Sign In', isSignIn: true }
+          ].map((item) => {
+            if (item.isInstall) {
+              return <PWAInstallButton key="install" variant="nav" />;
+            }
+            const isActive = item.id === 'home' && view === 'home';
+            const Icon = item.icon;
+            return (
+              <button 
+                key={item.id} 
+                onClick={() => { 
+                  if (item.id === 'home' || item.id === 'tournaments') {
+                    setView('home'); 
+                    setSelectedTournament(null);
+                  } else if (item.isSignIn) {
+                    login();
+                  }
+                }} 
+                className={`relative flex flex-col items-center justify-center gap-0.5 min-h-[44px] min-w-[44px] rounded-2xl transition-all ${isActive ? 'text-emerald-500 scale-105' : 'text-slate-400'}`}
+              >
+                {isActive && <motion.div layoutId="mobile-nav-bg-guest" className="absolute inset-0 bg-emerald-500/10 rounded-2xl" />}
+                <Icon className="w-5 h-5 relative z-10" />
+                <span className="text-[9px] font-bold uppercase tracking-wider relative z-10">{item.label}</span>
+              </button>
+            );
+          })
+        )}
+      </nav>
     </div>
   );
 }

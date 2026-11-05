@@ -29,6 +29,17 @@ export interface Tournament {
   matchDuration?: number; // minutes
   hasLosersFinal?: boolean;
   advancementType?: 'standard' | 'qualifier';
+  category?: 'football' | 'efootball';
+  isEfootball?: boolean;
+  editors?: string[];
+  editorInviteToken?: string;
+  editorMembers?: {
+    uid: string;
+    displayName?: string;
+    email?: string;
+    photoURL?: string;
+    addedAt?: string;
+  }[];
 }
 
 export interface Team {
@@ -68,6 +79,10 @@ export interface Match {
   kickoff?: any; // Firestore Timestamp
   leg?: 1 | 2;
   tieId?: string;
+  lineupA?: string[]; // Player IDs in starting lineup for Team A
+  lineupB?: string[]; // Player IDs in starting lineup for Team B
+  subsA?: string[];   // Player IDs on bench/subs for Team A
+  subsB?: string[];   // Player IDs on bench/subs for Team B
   createdAt?: any;
   updatedAt?: any;
 }
@@ -87,6 +102,11 @@ export interface Player {
   matchesPlayed?: number;
   yellowCards?: number;
   redCards?: number;
+  photoURL?: string;
+  bio?: string;
+  preferredFoot?: 'Left' | 'Right' | 'Both';
+  age?: number;
+  saves?: number;
 }
 
 export interface MatchEvent {

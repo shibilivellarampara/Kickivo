@@ -6,5 +6,7 @@
   "firestoreDatabaseId": "ai-studio-9b4f23e6-f1ae-494c-93be-47ca9a9b2c36",
   "storageBucket": "instanonfollowers-webapp.firebasestorage.app",
   "messagingSenderId": "988162886464",
-  "measurementId": ""
+  "measurementId": "",
+  "oAuthClientId": "988162886464-oe737knrd8kp51if0k7veakmj830smfe.apps.googleusercontent.com",
+  "recaptchaSiteKey": ""
 }

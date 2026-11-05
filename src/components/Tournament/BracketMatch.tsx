@@ -9,9 +9,10 @@ interface BracketMatchProps {
   position: 'left' | 'right' | 'center';
   onSelect: (m: Match) => void;
   compact?: boolean;
+  onSelectTeam?: (team: Team) => void;
 }
 
-export const BracketMatch: React.FC<BracketMatchProps> = ({ match, teams, position, onSelect, compact = false }) => {
+export const BracketMatch: React.FC<BracketMatchProps> = ({ match, teams, position, onSelect, compact = false, onSelectTeam }) => {
   const teamA = teams.find(t => t.id === match.teamAId);
   const teamB = teams.find(t => t.id === match.teamBId);
   const isFinished = match.status === 'finished';
@@ -39,9 +40,17 @@ export const BracketMatch: React.FC<BracketMatchProps> = ({ match, teams, positi
       >
         <div className="space-y-3">
           <div className={`flex items-center gap-3 ${flexDirectionClass}`}>
-            <TeamSlot id={match.teamAId} teams={teams} small />
-            <div className={`flex-1 min-w-0 ${textAlignClass}`}>
-              <div className={`text-xs font-black uppercase tracking-tighter truncate ${isAWinner ? 'text-emerald-500' : 'text-slate-900'}`}>
+            <TeamSlot id={match.teamAId} teams={teams} small onSelectTeam={onSelectTeam} />
+            <div 
+              onClick={(e) => {
+                if (teamA && onSelectTeam) {
+                  e.stopPropagation();
+                  onSelectTeam(teamA);
+                }
+              }}
+              className={`flex-1 min-w-0 ${textAlignClass} ${teamA && onSelectTeam ? 'cursor-pointer group/teamA' : ''}`}
+            >
+              <div className={`text-xs font-black uppercase tracking-tighter truncate ${isAWinner ? 'text-emerald-500' : 'text-slate-900'} ${teamA && onSelectTeam ? 'group-hover/teamA:text-emerald-500 group-hover/teamA:underline' : ''}`}>
                 {displayAName}
               </div>
               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{displayAShort}</div>
@@ -56,9 +65,17 @@ export const BracketMatch: React.FC<BracketMatchProps> = ({ match, teams, positi
             </div>
           </div>
           <div className={`flex items-center gap-3 ${flexDirectionClass}`}>
-            <TeamSlot id={match.teamBId} teams={teams} small />
-            <div className={`flex-1 min-w-0 ${textAlignClass}`}>
-              <div className={`text-xs font-black uppercase tracking-tighter truncate ${isBWinner ? 'text-emerald-500' : 'text-slate-900'}`}>
+            <TeamSlot id={match.teamBId} teams={teams} small onSelectTeam={onSelectTeam} />
+            <div 
+              onClick={(e) => {
+                if (teamB && onSelectTeam) {
+                  e.stopPropagation();
+                  onSelectTeam(teamB);
+                }
+              }}
+              className={`flex-1 min-w-0 ${textAlignClass} ${teamB && onSelectTeam ? 'cursor-pointer group/teamB' : ''}`}
+            >
+              <div className={`text-xs font-black uppercase tracking-tighter truncate ${isBWinner ? 'text-emerald-500' : 'text-slate-900'} ${teamB && onSelectTeam ? 'group-hover/teamB:text-emerald-500 group-hover/teamB:underline' : ''}`}>
                 {displayBName}
               </div>
               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{displayBShort}</div>

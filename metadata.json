@@ -2,5 +2,5 @@
   "name": "Kickivo",
   "description": "The ultimate football tournament platform featuring live scoring, player career cards, and community recruitment.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

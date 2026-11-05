@@ -51,13 +51,13 @@ export const RecruitmentBoard: React.FC<RecruitmentBoardProps> = ({ user, onErro
   return (
     <section className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold flex items-center gap-2 text-slate-900">
+        <h2 className="text-xl font-bold flex items-center gap-2 text-slate-900 dark:text-white">
           <MessageSquare className="w-5 h-5 text-emerald-500" />
           Community Recruitment
         </h2>
         <button 
           onClick={() => user ? setShowForm(true) : notify('Please login to post')}
-          className="px-4 py-2 bg-slate-900 text-white rounded-full text-xs font-bold hover:bg-emerald-500 transition-all shadow-lg active:scale-95"
+          className="px-4 py-2 bg-slate-900 dark:bg-slate-800 text-white rounded-full text-xs font-bold hover:bg-emerald-500 dark:hover:bg-emerald-500 transition-all shadow-lg active:scale-95"
         >
           Post Request
         </button>
@@ -65,26 +65,26 @@ export const RecruitmentBoard: React.FC<RecruitmentBoardProps> = ({ user, onErro
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {posts.map(post => (
-          <div key={post.id} className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm space-y-4 hover:border-emerald-200 transition-all flex flex-col justify-between">
+          <div key={post.id} className="bg-white dark:bg-slate-900 p-6 rounded-[32px] border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 hover:border-emerald-200 dark:hover:border-emerald-500/50 transition-all flex flex-col justify-between">
             <div className="space-y-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center">
-                  <UserIcon className="w-5 h-5 text-slate-400" />
+                <div className="w-10 h-10 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center">
+                  <UserIcon className="w-5 h-5 text-slate-400 dark:text-slate-500" />
                 </div>
                 <div>
-                  <div className="font-bold text-sm text-slate-900">{post.userName}</div>
+                  <div className="font-bold text-sm text-slate-900 dark:text-slate-200">{post.userName}</div>
                   <div className="text-[10px] uppercase font-black tracking-widest text-emerald-500">{post.type?.replace(/_/g, ' ')}</div>
                 </div>
               </div>
-              <p className="text-sm text-slate-600 italic leading-relaxed">"{post.content}"</p>
+              <p className="text-sm text-slate-600 dark:text-slate-400 italic leading-relaxed">"{post.content}"</p>
             </div>
-            <button className="w-full py-3 bg-slate-50 text-slate-900 text-xs font-bold rounded-[18px] flex items-center justify-center gap-2 hover:bg-emerald-50 hover:text-emerald-500 transition-all border border-slate-100 group">
+            <button className="w-full py-3 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-300 text-xs font-bold rounded-[18px] flex items-center justify-center gap-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-500 transition-all border border-slate-100 dark:border-slate-800/80 group">
               <Send className="w-3 h-3 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" /> Connect
             </button>
           </div>
         ))}
         {posts.length === 0 && (
-          <div className="col-span-full py-20 text-center bg-slate-50 rounded-[32px] border border-dashed border-slate-200 text-slate-400 font-medium italic">
+          <div className="col-span-full py-20 text-center bg-slate-50 dark:bg-slate-900 rounded-[32px] border border-dashed border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500 font-medium italic">
             No active recruitment requests yet.
           </div>
         )}

@@ -6,6 +6,22 @@ export const SoccerIcon = ({ className }: { className?: string }) => {
   return <Icon className={className} />;
 };
 
+export const MissedPenaltyIcon = ({ className }: { className?: string }) => (
+  <svg 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    xmlns="http://www.w3.org/2000/svg" 
+    className={className} 
+    stroke="currentColor" 
+    strokeWidth="2.5" 
+    strokeLinecap="round" 
+    strokeLinejoin="round"
+  >
+    <path d="M4 20V9a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v11" />
+    <path d="M10 12l4 4M14 12l-4 4" strokeWidth="2.2" />
+  </svg>
+);
+
 export const PitchIcon = ({ className }: { className?: string }) => (
   <svg viewBox="0 0 100 64" fill="none" xmlns="http://www.w3.org/2000/svg" className={className} stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
     <rect x="3" y="3" width="94" height="58" rx="4" />
