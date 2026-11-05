@@ -67,17 +67,19 @@ export const PointTableModule: React.FC<PointTableModuleProps> = ({
             <div className="flex items-center justify-between gap-4 flex-wrap">
               {g && <h3 className="text-xl font-black italic text-slate-800 dark:text-slate-100">{g}</h3>}
             </div>
-            <div className="bg-white dark:bg-slate-900 rounded-[32px] border border-slate-100 dark:border-slate-800 overflow-x-auto shadow-sm">
-              <table className="min-w-[500px] md:min-w-full text-left">
+            {/* Mobile: fixed-layout table that always fits the screen width (no sideways scroll) with compact rows.
+                md and up: the original roomy layout. */}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl md:rounded-[32px] border border-slate-100 dark:border-slate-800 overflow-x-auto shadow-sm">
+              <table className="w-full table-fixed md:table-auto md:min-w-full text-left">
                 <thead>
                   <tr className="bg-slate-50 dark:bg-slate-950/40 border-b border-slate-100 dark:border-slate-800">
-                    <th className="px-5 py-3.5 text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wider w-16">#</th>
-                    <th className="px-5 py-3.5 text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wider">Team</th>
-                    <th className="px-4 py-3.5 text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wider text-center w-16">MP</th>
-                    <th className="px-4 py-3.5 text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wider text-center w-20">PTS</th>
-                    <th className="px-3 py-3.5 text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wider text-center w-16">GF</th>
-                    <th className="px-3 py-3.5 text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wider text-center w-16">GA</th>
-                    <th className="px-4 py-3.5 text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wider text-center w-20">GD</th>
+                    <th className="pl-2 pr-0 md:px-5 py-2 md:py-3.5 text-[9.5px] md:text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wide md:tracking-wider w-6 md:w-16">#</th>
+                    <th className="pl-1 pr-0 md:px-5 py-2 md:py-3.5 text-[9.5px] md:text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wide md:tracking-wider">Team</th>
+                    <th className="px-0 md:px-4 py-2 md:py-3.5 text-[9.5px] md:text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wide md:tracking-wider text-center w-[26px] md:w-16">MP</th>
+                    <th className="px-0 md:px-4 py-2 md:py-3.5 text-[9.5px] md:text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wide md:tracking-wider text-center w-8 md:w-20">PTS</th>
+                    <th className="px-0 md:px-3 py-2 md:py-3.5 text-[9.5px] md:text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wide md:tracking-wider text-center w-[26px] md:w-16">GF</th>
+                    <th className="px-0 md:px-3 py-2 md:py-3.5 text-[9.5px] md:text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wide md:tracking-wider text-center w-[26px] md:w-16">GA</th>
+                    <th className="px-0 md:px-4 py-2 md:py-3.5 text-[9.5px] md:text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wide md:tracking-wider text-center w-8 md:w-20">GD</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -157,7 +159,7 @@ export const PointTableModule: React.FC<PointTableModuleProps> = ({
                         }`} 
                         onClick={() => onSelectTeam(t)}
                       >
-                        <td className="relative px-5 py-3.5 font-bold text-xs">
+                        <td className="relative pl-2 pr-0 md:px-5 py-1.5 md:py-3.5 font-bold text-[11.5px] md:text-xs">
                           {/* Sleek left vertical indicator bar with reduced width */}
                           {isQualifying && (
                             <div 
@@ -169,38 +171,42 @@ export const PointTableModule: React.FC<PointTableModuleProps> = ({
                             {idx + 1}
                           </span>
                         </td>
-                        <td className="px-5 py-3.5 font-semibold flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-3 min-w-0">
-                            {renderTeamLogo(t.logoURL, t.name, "w-8 h-8")}
-                            <span className="text-sm group-hover:text-emerald-600 transition-colors truncate text-slate-800 dark:text-slate-200">
-                              {t.name}
-                            </span>
-                          </div>
-                          {liveStatus && (
-                            <div 
-                              className="flex items-center justify-center shrink-0 w-4 h-4 select-none"
-                              title={`Live match vs ${oppName} (${liveMatchForTeam?.scoreA} - ${liveMatchForTeam?.scoreB})`}
-                            >
-                              <span className="relative flex h-2 w-2">
-                                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                                  liveStatus === 'winning' ? 'bg-emerald-400' : liveStatus === 'losing' ? 'bg-rose-400' : 'bg-slate-400'
-                                }`} />
-                                <span className={`relative inline-flex rounded-full h-2 w-2 ${
-                                  liveStatus === 'winning' ? 'bg-emerald-500' : liveStatus === 'losing' ? 'bg-rose-500' : 'bg-slate-500'
-                                }`} />
+                        <td className="pl-1 pr-0.5 md:px-5 py-1.5 md:py-3.5 font-semibold overflow-hidden">
+                          <div className="flex items-center justify-between gap-1.5 md:gap-3">
+                            <div className="flex items-center gap-1.5 md:gap-3 min-w-0">
+                              {renderTeamLogo(t.logoURL, t.name, "w-[22px] h-[22px] md:w-8 md:h-8 shrink-0")}
+                              <span className="text-[12.5px] md:text-sm group-hover:text-emerald-600 transition-colors truncate text-slate-800 dark:text-slate-200">
+                                {t.name}
                               </span>
                             </div>
-                          )}
+                            {liveStatus && (
+                              <div
+                                className="flex items-center justify-center shrink-0 w-3 h-3 md:w-4 md:h-4 select-none"
+                                title={`Live match vs ${oppName} (${liveMatchForTeam?.scoreA} - ${liveMatchForTeam?.scoreB})`}
+                              >
+                                <span className="relative flex h-2 w-2">
+                                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                                    liveStatus === 'winning' ? 'bg-emerald-400' : liveStatus === 'losing' ? 'bg-rose-400' : 'bg-slate-400'
+                                  }`} />
+                                  <span className={`relative inline-flex rounded-full h-2 w-2 ${
+                                    liveStatus === 'winning' ? 'bg-emerald-500' : liveStatus === 'losing' ? 'bg-rose-500' : 'bg-slate-500'
+                                  }`} />
+                                </span>
+                              </div>
+                            )}
+                          </div>
                         </td>
-                        <td className="px-4 py-3.5 text-center font-semibold text-slate-400 dark:text-slate-500 text-sm">{t.played}</td>
-                        <td className="px-4 py-3.5 text-center">
-                          <span className="bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 px-2.5 py-1 rounded-lg font-bold text-xs tracking-tight">
+                        <td className="px-0 md:px-4 py-1.5 md:py-3.5 text-center font-semibold text-slate-400 dark:text-slate-500 text-xs md:text-sm">{t.played}</td>
+                        <td className="px-0 md:px-4 py-1.5 md:py-3.5 text-center">
+                          <span className="bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 md:px-2.5 md:py-1 rounded-md md:rounded-lg font-bold text-[11.5px] md:text-xs tracking-tight">
                             {t.points}
                           </span>
                         </td>
-                        <td className="px-3 py-3.5 text-center font-medium text-slate-400 dark:text-slate-500 text-xs">{t.gf}</td>
-                        <td className="px-3 py-3.5 text-center font-medium text-slate-400 dark:text-slate-500 text-xs">{t.ga}</td>
-                        <td className="px-4 py-3.5 text-center font-semibold text-emerald-500 text-sm">
+                        <td className="px-0 md:px-3 py-1.5 md:py-3.5 text-center font-medium text-slate-400 dark:text-slate-500 text-xs">{t.gf}</td>
+                        <td className="px-0 md:px-3 py-1.5 md:py-3.5 text-center font-medium text-slate-400 dark:text-slate-500 text-xs">{t.ga}</td>
+                        <td className={`px-0 md:px-4 py-1.5 md:py-3.5 text-center font-semibold text-xs md:text-sm ${
+                          t.gd > 0 ? 'text-emerald-500' : t.gd < 0 ? 'text-rose-500' : 'text-slate-400 dark:text-slate-500'
+                        }`}>
                           {t.gd > 0 ? `+${t.gd}` : t.gd}
                         </td>
                       </tr>
@@ -211,7 +217,7 @@ export const PointTableModule: React.FC<PointTableModuleProps> = ({
             </div>
 
             {/* Standings Legend & Key */}
-            <div className="mt-4 px-4 py-3.5 bg-slate-50/70 dark:bg-slate-900/70 rounded-2xl border border-slate-100/80 dark:border-slate-800/80 max-w-sm select-none text-[9px] uppercase tracking-wider shadow-sm">
+            <div className="mt-3 md:mt-4 px-3 py-2.5 md:px-4 md:py-3.5 bg-slate-50/70 dark:bg-slate-900/70 rounded-2xl border border-slate-100/80 dark:border-slate-800/80 md:max-w-sm select-none text-[9px] uppercase tracking-wider shadow-sm">
               <div className="flex flex-col gap-2 text-slate-500 dark:text-slate-400 font-bold">
                 {/* Qualification Rules */}
                 {advancingCount > 0 && (
@@ -222,12 +228,12 @@ export const PointTableModule: React.FC<PointTableModuleProps> = ({
                     {isTop6Mode ? (
                       <>
                         <div className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-[3px] bg-emerald-500 shrink-0 shadow-sm" />
+                          <span className="w-2.5 h-2.5 rounded-[3px] bg-blue-500 shrink-0 shadow-sm" />
                           <span className="font-black text-slate-800 dark:text-slate-200">1st & 2nd:</span>
                           <span className="text-slate-600 dark:text-slate-400 font-semibold">Direct to Semi-finals</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-[3px] bg-blue-500 shrink-0 shadow-sm" />
+                          <span className="w-2.5 h-2.5 rounded-[3px] bg-emerald-500 shrink-0 shadow-sm" />
                           <span className="font-black text-slate-800 dark:text-slate-200">3rd–6th:</span>
                           <span className="text-slate-600 dark:text-slate-400 font-semibold">Playoffs (3v6, 4v5 → Semis)</span>
                         </div>
@@ -292,6 +298,8 @@ export const PointTableModule: React.FC<PointTableModuleProps> = ({
                   </>
                 )}
                 
+                {/* Column key: one wrapped line on mobile, stacked list on md+ */}
+                <div className="flex flex-wrap gap-x-3 gap-y-1.5 md:flex-col md:gap-2">
                 <div className="flex items-center gap-1.5">
                   <span className="text-slate-400 dark:text-slate-500 font-semibold w-6 shrink-0">MP</span>
                   <span className="text-slate-300 dark:text-slate-700 font-normal">:</span>
@@ -316,6 +324,7 @@ export const PointTableModule: React.FC<PointTableModuleProps> = ({
                   <span className="text-slate-400 dark:text-slate-500 font-semibold w-6 shrink-0">GD</span>
                   <span className="text-slate-300 dark:text-slate-700 font-normal">:</span>
                   <span>Goal Difference</span>
+                </div>
                 </div>
               </div>
             </div>
